@@ -1,0 +1,446 @@
+#!/bin/bash
+
+if test x"$1" = x"-h" -o x"$1" = x"--help" ; then
+
+echo "Usage: ./configure [options]"
+echo ""
+echo "available options:"
+echo ""
+echo "  --help                   print this message"
+echo "  --enable-debug           adds -g, doesn't strip"
+echo "  --enable-pic             build position-independent code"
+echo "  --disable-shared         don't build libmpegts.so"
+echo "  --extra-cflags=ECFLAGS   add ECFLAGS to CFLAGS"
+echo "  --extra-ldflags=ELDFLAGS add ELDFLAGS to LDFLAGS"
+echo "  --host=HOST              build programs to run on HOST"
+echo "  --cross-prefix=PREFIX    use PREFIX for compilation tools"
+echo "  --sysroot=SYSROOT        root of cross-build tree"
+echo ""
+exit 1
+fi
+
+log_check() {
+    echo -n "checking $1... " >> config.log
+}
+
+log_ok() {
+    echo "yes" >> config.log
+}
+
+log_fail() {
+    echo "no" >> config.log
+}
+
+log_msg() {
+    echo "$1" >> config.log
+}
+
+cc_check() {
+    if [ -z "$3" ]; then
+        if [ -z "$1$2" ]; then
+            log_check "whether $CC works"
+        elif [ -z "$1" ]; then
+            log_check "for $2"
+        else
+            log_check "for $1"
+        fi
+    elif [ -z "$1" ]; then
+        log_check "whether $CC supports $3"
+    else
+        log_check "for $3 in $1";
+    fi
+    rm -f conftest.c
+    [ -n "$1" ] && echo "#include <$1>" > conftest.c
+    echo "int main () { $3 return 0; }" >> conftest.c
+    if $CC conftest.c $CFLAGS $2 $LDFLAGSCLI $LDFLAGS -o conftest >conftest.log 2>&1; then
+        res=$?
+        log_ok
+    else
+        res=$?
+        log_fail
+        log_msg "Failed commandline was:"
+        log_msg "--------------------------------------------------"
+        log_msg "$CC conftest.c $CFLAGS $2 $LDFLAGSCLI $LDFLAGS"
+        cat conftest.log >> config.log
+        log_msg "--------------------------------------------------"
+    fi
+    return $res
+}
+
+define() {
+    echo "#define $1$([ -n "$2" ] && echo " $2" || echo " 1")" >> config.h
+}
+
+die() {
+    log_msg "DIED: $@"
+    echo "$@"
+    exit 1
+}
+
+rm -f config.h config.mak config.log libmpegts.pc conftest*
+
+prefix='/usr/local'
+exec_prefix='${prefix}'
+bindir='${exec_prefix}/bin'
+libdir='${exec_prefix}/lib'
+includedir='${prefix}/include'
+DEVNULL='/dev/null'
+
+debug="no"
+pic="no"
+shared="yes"
+
+CFLAGS="$CFLAGS -Wall -I."
+LDFLAGS="$LDFLAGS"
+LDFLAGSCLI="$LDFLAGSCLI"
+cross_prefix=""
+
+EXE=""
+
+# parse options
+
+for opt do
+    optarg="${opt#*=}"
+    case "$opt" in
+        --prefix=*)
+            prefix="$optarg"
+            ;;
+        --exec-prefix=*)
+            exec_prefix="$optarg"
+            ;;
+        --bindir=*)
+            bindir="$optarg"
+            ;;
+        --libdir=*)
+            libdir="$optarg"
+            ;;
+        --includedir=*)
+            includedir="$optarg"
+            ;;
+        --extra-cflags=*)
+            CFLAGS="$CFLAGS ${opt#--extra-cflags=}"
+            ;;
+        --extra-ldflags=*)
+            LDFLAGS="$LDFLAGS ${opt#--extra-ldflags=}"
+            ;;
+        --enable-debug)
+            debug="yes"
+            ;;
+        --enable-pic)
+            pic="yes"
+            ;;
+        --enable-shared)
+            shared="yes"
+            ;;
+        --host=*)
+            host="${opt#--host=}"
+            ;;
+        --cross-prefix=*)
+            cross_prefix="${opt#--cross-prefix=}"
+            ;;
+        --sysroot=*)
+            CFLAGS="$CFLAGS --sysroot=${opt#--sysroot=}"
+            LDFLAGS="$LDFLAGS --sysroot=${opt#--sysroot=}"
+            ;;
+        *)
+            echo "Unknown option $opt, ignored"
+            ;;
+    esac
+done
+
+CC="${CC-${cross_prefix}gcc}"
+AR="${AR-${cross_prefix}ar}"
+RANLIB="${RANLIB-${cross_prefix}ranlib}"
+STRIP="${STRIP-${cross_prefix}strip}"
+
+if [ "x$host" = x ]; then
+    host=`./config.guess`
+fi
+# normalize a triplet into a quadruplet
+host=`./config.sub $host`
+
+# split $host
+host_cpu="${host%%-*}"
+host="${host#*-}"
+host_vendor="${host%%-*}"
+host_os="${host#*-}"
+
+case $host_os in
+  beos*)
+    SYS="BEOS"
+    define HAVE_MALLOC_H
+    ;;
+  darwin*)
+    SYS="MACOSX"
+    CFLAGS="$CFLAGS -falign-loops=16"
+    LDFLAGS="$LDFLAGS -lm"
+    if [ "$pic" = "no" ]; then
+        cc_check "" -mdynamic-no-pic && CFLAGS="$CFLAGS -mdynamic-no-pic"
+    fi
+    ;;
+  freebsd*)
+    SYS="FREEBSD"
+    LDFLAGS="$LDFLAGS -lm"
+    ;;
+  kfreebsd*-gnu)
+    SYS="FREEBSD"
+    define HAVE_MALLOC_H
+    LDFLAGS="$LDFLAGS -lm"
+    ;;
+  netbsd*)
+    SYS="NETBSD"
+    LDFLAGS="$LDFLAGS -lm"
+    ;;
+  openbsd*)
+    SYS="OPENBSD"
+    LDFLAGS="$LDFLAGS -lm"
+    ;;
+  *linux*)
+    SYS="LINUX"
+    define HAVE_MALLOC_H
+    LDFLAGS="$LDFLAGS -lm"
+    ;;
+  cygwin*)
+    SYS="MINGW"
+    EXE=".exe"
+    DEVNULL="NUL"
+    if cc_check "" -mno-cygwin; then
+        CFLAGS="$CFLAGS -mno-cygwin"
+        LDFLAGS="$LDFLAGS -mno-cygwin"
+    fi
+    ;;
+  mingw*)
+    SYS="MINGW"
+    EXE=".exe"
+    DEVNULL="NUL"
+    ;;
+  sunos*|solaris*)
+    SYS="SunOS"
+    define HAVE_MALLOC_H
+    LDFLAGS="$LDFLAGS -lm"
+    ;;
+  *)
+    die "Unknown system $host, edit the configure"
+    ;;
+esac
+
+case $host_cpu in
+  i*86)
+    ARCH="X86"
+    if [[ "$CFLAGS" != *-march* ]]; then
+      CFLAGS="$CFLAGS -march=i686"
+    fi
+    if [[ "$CFLAGS" != *-mfpmath* ]]; then
+      CFLAGS="$CFLAGS -mfpmath=sse -msse"
+    fi
+    if [ "$SYS" = MINGW ]; then
+      LDFLAGS="$LDFLAGS -Wl,--large-address-aware"
+    fi
+    ;;
+  x86_64)
+    ARCH="X86_64"
+    if [ "$SYS" = MACOSX ];then
+      if cc_check '' "-arch x86_64"; then
+        CFLAGS="$CFLAGS -arch x86_64"
+        LDFLAGS="$LDFLAGS -arch x86_64"
+      fi
+    elif [ "$SYS" = MINGW ]; then
+      cc_check "" "-S" && grep -q "_main:" conftest
+    fi
+    ;;
+  powerpc|powerpc64)
+    ARCH="PPC"
+    if [ $SYS = MACOSX ] ; then
+      CFLAGS="$CFLAGS -faltivec -fastf -mcpu=G4"
+    else
+      CFLAGS="$CFLAGS -maltivec -mabi=altivec"
+    fi
+    ;;
+  sparc)
+    if test "$(uname -m)" = "sun4u"; then
+      ARCH="UltraSparc"
+      CFLAGS="$CFLAGS -mcpu=ultrasparc"
+      LDFLAGS="$LDFLAGS -mcpu=ultrasparc"
+    else
+      ARCH="Sparc"
+    fi
+    ;;
+  mips|mipsel|mips64|mips64el)
+    ARCH="MIPS"
+    ;;
+  arm*)
+    ARCH="ARM"
+    if [ "$SYS" = MACOSX ] ; then
+      # build for armv7 by default
+      if ! echo $CFLAGS | grep -Eq '\-arch' ; then
+        CFLAGS="$CFLAGS -arch armv7"
+        LDFLAGS="$LDFLAGS -arch armv7"
+      fi
+    fi
+    ;;
+  s390|s390x)
+    ARCH="S390"
+    ;;
+  parisc|parisc64)
+    ARCH="PARISC"
+    ;;
+  ia64)
+    ARCH="IA64"
+    ;;
+  *)
+    ARCH="$(echo $host_cpu | tr a-z A-Z)"
+    ;;
+esac
+
+log_msg "libmpegts configure script"
+if [ -n "$*" ]; then
+    msg="Command line options:"
+    for i in $@; do
+        msg="$msg \"$i\""
+    done
+    log_msg "$msg"
+fi
+log_msg ""
+
+# check requirements
+
+cc_check || die "No working C compiler found."
+
+if cc_check '' -std=gnu99 ; then
+    CFLAGS="$CFLAGS -std=gnu99"
+elif cc_check '' -std=c99 ; then
+    CFLAGS="$CFLAGS -std=c99 -D_POSIX_C_SOURCE=200112L -D_BSD_SOURCE"
+fi
+
+if [ $shared = yes -a \( $ARCH = "X86_64" -o $ARCH = "PPC" -o $ARCH = "ALPHA" -o $ARCH = "ARM" -o $ARCH = "IA64" \) ] ; then
+    pic="yes"
+fi
+
+define ARCH_$ARCH
+define SYS_$SYS
+
+echo "int i = 0x42494745; double f = 0x1.0656e6469616ep+102;" > conftest.c
+$CC $CFLAGS conftest.c -c -o conftest.o 2>$DEVNULL || die "endian test failed"
+if grep -q BIGE conftest.o && grep -q FPendian conftest.o ; then
+    define WORDS_BIGENDIAN
+elif !(grep -q EGIB conftest.o && grep -q naidnePF conftest.o) ; then
+    die "endian test failed"
+fi
+
+# autodetect options that weren't forced nor disabled
+
+if [ "$pic" = "yes" ] ; then
+    CFLAGS="$CFLAGS -fPIC"
+    # resolve textrels in the x86 asm
+    cc_check stdio.h -Wl,-Bsymbolic && LDFLAGS="$LDFLAGS -Wl,-Bsymbolic"
+fi
+
+if [ "$debug" != "yes" -a "$gprof" != "yes" ]; then
+    CFLAGS="$CFLAGS -s -fomit-frame-pointer"
+    LDFLAGS="$LDFLAGS -s"
+fi
+
+if [ "$debug" = "yes" ]; then
+    CFLAGS="-O1 -g $CFLAGS"
+elif [ $ARCH = ARM ]; then
+    # arm-gcc-4.2 produces incorrect output with -ffast-math
+    # and it doesn't save any speed anyway on 4.4, so disable it
+    CFLAGS="-O3 -fno-fast-math $CFLAGS"
+else
+    CFLAGS="-O3 -ffast-math $CFLAGS"
+fi
+
+if cc_check '' -fno-tree-vectorize ; then
+    CFLAGS="$CFLAGS -fno-tree-vectorize"
+fi
+
+if cc_check "stdio.h" "" "fseeko(stdin,0,0);" ; then
+    define fseek fseeko
+    define ftell ftello
+elif cc_check "stdio.h" "" "fseeko64(stdin,0,0);" ; then
+    define fseek fseeko64
+    define ftell ftello64
+fi
+
+if cc_check '' -Wshadow ; then
+    CFLAGS="-Wshadow $CFLAGS"
+fi
+
+rm -f conftest*
+
+# generate config files
+
+cat > config.mak << EOF
+prefix=$prefix
+exec_prefix=$exec_prefix
+bindir=$bindir
+libdir=$libdir
+includedir=$includedir
+ARCH=$ARCH
+SYS=$SYS
+CC=$CC
+CFLAGS=$CFLAGS
+LDFLAGS=$LDFLAGS
+LDFLAGSCLI=$LDFLAGSCLI
+AR=$AR
+RANLIB=$RANLIB
+STRIP=$STRIP
+EXE=$EXE
+DEVNULL=$DEVNULL
+EOF
+
+if [ "$shared" = "yes" ]; then
+    API=$(grep '#define API_VERSION_MAJOR' < libmpegts.h | cut -f 3 -d ' ')
+    if [ "$SYS" = "MINGW" ]; then
+        echo "SONAME=libmpegts-$API.dll" >> config.mak
+        echo 'IMPLIBNAME=libmpegts.dll.a' >> config.mak
+        echo 'SOFLAGS=-Wl,--out-implib,$(IMPLIBNAME) -Wl,--enable-auto-image-base' >> config.mak
+    elif [ "$SYS" = "MACOSX" ]; then
+        echo "SOSUFFIX=dylib" >> config.mak
+        echo "SONAME=libmpegts.$API.dylib" >> config.mak
+        echo 'SOFLAGS=-dynamiclib -Wl,-single_module -Wl,-read_only_relocs,suppress -install_name $(DESTDIR)$(libdir)/$(SONAME)' >> config.mak
+    elif [ "$SYS" = "SunOS" ]; then
+        echo "SOSUFFIX=so" >> config.mak
+        echo "SONAME=libmpegts.so.$API" >> config.mak
+        echo 'SOFLAGS=-Wl,-h,$(SONAME)' >> config.mak
+    else
+        echo "SOSUFFIX=so" >> config.mak
+        echo "SONAME=libmpegts.so.$API" >> config.mak
+        echo 'SOFLAGS=-Wl,-soname,$(SONAME)' >> config.mak
+    fi
+    echo 'default: $(SONAME)' >> config.mak
+fi
+
+./version.sh >> config.h
+
+pclibs="-L$libdir -lmpegts"
+
+cat > libmpegts.pc << EOF
+prefix=$prefix
+exec_prefix=$exec_prefix
+libdir=$libdir
+includedir=$includedir
+
+Name: libmpegts
+Description: MPEG-2 Systems Transport Stream Multiplexer
+Version: $(grep POINTVER < config.h | sed -e 's/.* "//; s/".*//')
+Libs: $pclibs
+Cflags: -I$includedir
+EOF
+
+cat > conftest.log <<EOF
+Platform:   $ARCH
+System:     $SYS
+debug:      $debug
+PIC:        $pic
+shared:     $shared
+EOF
+
+echo >> config.log
+cat conftest.log >> config.log
+cat conftest.log
+rm conftest.log
+
+echo
+echo "You can run 'make' or 'make fprofiled' now."
+
