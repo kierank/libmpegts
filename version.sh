@@ -16,5 +16,5 @@ else
     VER="x"
 fi
 rm -f config.git-hash
-API=`grep '#define API_VERSION_MAJOR' < libmpegts.h | sed -e 's/.* \([0-9]*\).*/\1/'`
+API=`grep '#define LIBMPEGTS_API_VERSION_MAJOR' < libmpegts.h | sed -e 's/.* \([0-9]*\).*/\1/'`
 echo "#define LIBMPEGTS_POINTVER \"0.$API.$VER\""
