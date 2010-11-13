@@ -18,8 +18,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02111, USA.
  *****************************************************************************/
 
-#ifndef LIBMPEGTS_CRC32
-#define LIBMPEGTS_CRC32
+#ifndef LIBMPEGTS_CRC_H
+#define LIBMPEGTS_CRC_H
 
 uint32_t crc_32( uint8_t *bytes, int length );
 

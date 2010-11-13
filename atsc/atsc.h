@@ -18,8 +18,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02111, USA.
  *****************************************************************************/
 
-#ifndef LIBMPEGTS_ATSC
-#define LIBMPEGTS_ATSC
+#ifndef LIBMPEGTS_ATSC_H
+#define LIBMPEGTS_ATSC_H
 
 /* ATSC stream_types */
 #define AUDIO_AC3         0x81
