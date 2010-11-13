@@ -390,7 +390,7 @@ DEVNULL=$DEVNULL
 EOF
 
 if [ "$shared" = "yes" ]; then
-    API=$(grep '#define API_VERSION_MAJOR' < libmpegts.h | cut -f 3 -d ' ')
+    API=$(grep '#define LIBMPEGTS_API_VERSION_MAJOR' < libmpegts.h | cut -f 3 -d ' ')
     if [ "$SYS" = "MINGW" ]; then
         echo "SONAME=libmpegts-$API.dll" >> config.mak
         echo 'IMPLIBNAME=libmpegts.dll.a' >> config.mak
