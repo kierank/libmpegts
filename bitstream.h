@@ -28,12 +28,6 @@
 #ifndef LIBMPEGTS_BS_H
 #define LIBMPEGTS_BS_H
 
-#if HAVE_STDINT_H
-#include <stdint.h>
-#else
-#include <inttypes.h>
-#endif
-
 #define WORD_SIZE sizeof(long)
 
 /* Unions for type-punning.
