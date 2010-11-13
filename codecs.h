@@ -34,16 +34,42 @@ typedef struct {
     int cpb;         /* max vbv buffer (kbit) */
 } h264_level_t;
 
-const h264_level_t h264_levels[];
+const h264_level_t h264_levels[] =
+{
+    { 10,     64,     64 },
+    {  9,    128,    350 }, /* 1b */
+    { 11,    192,    500 },
+    { 12,    384,   1000 },
+    { 13,    768,   2000 },
+    { 20,   2000,   2000 },
+    { 21,   4000,   4000 },
+    { 22,   4000,   4000 },
+    { 30,  10000,  10000 },
+    { 31,  14000,  14000 },
+    { 32,  20000,  20000 },
+    { 40,  20000,  25000 },
+    { 41,  50000,  62500 },
+    { 42,  50000,  62500 },
+    { 50, 135000, 135000 },
+    { 51, 240000, 240000 },
+    { 0 }
+};
 
 /* Audio */
 typedef struct {
     int max_channels;
-    int rxn; // Leak rate from Transport Buffer
-    int bsn; // Size of Main buffer
+    int rxn;         /* Leak rate from Transport Buffer */
+    int bsn;         /* Size of Main buffer */
 } aac_buffer_t;
 
-const aac_buffer_t aac_buffers[];
+const aac_buffer_t aac_buffers[] =
+{
+    { 2,  2000000,  3584*8 },
+    { 8,  5529600,  8976*8 },
+    { 12, 8294400,  12804*8 },
+    { 48, 33177600, 51216*8 },
+    { 0 },
+};
 
 /* AC3 buffer sizes */
 #define AC3_BS_ATSC 2592*8
