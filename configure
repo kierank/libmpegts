@@ -442,5 +442,5 @@ cat conftest.log
 rm conftest.log
 
 echo
-echo "You can run 'make' or 'make fprofiled' now."
+echo "You can run 'make' now."
 
