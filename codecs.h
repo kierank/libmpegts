@@ -21,6 +21,7 @@
 #ifndef LIBMPEGTS_CODECS_H
 #define LIBMPEGTS_CODECS_H
 
+/* Video */
 typedef struct {
     int level_idc;
     int bitrate;      /* max bitrate (kbit/sec) */
@@ -35,20 +36,18 @@ typedef struct {
 
 const h264_level_t h264_levels[];
 
+/* Audio */
+typedef struct {
+    int max_channels;
+    int rxn; // Leak rate from Transport Buffer
+    int bsn; // Size of Main buffer
+} aac_buffer_t;
+
+const aac_buffer_t aac_buffers[];
+
 /* AC3 buffer sizes */
 #define AC3_BS_ATSC 2592*8
 #define AC3_BS_DVB 5696*8
-
-/* ISO/IEC 13818-7 ADTS audio */
-#define MPEG2_AAC_MAX_CHNLS_2_RXN  2000000
-#define MPEG2_AAC_MAX_CHNLS_8_RXN  5529600
-#define MPEG2_AAC_MAX_CHNLS_12_RXN 8294400
-#define MPEG2_AAC_MAX_CHNLS_48_RXN 33177600 
-
-#define MPEG2_AAC_MAX_CHNLS_2_BSN  3584*8
-#define MPEG2_AAC_MAX_CHNLS_8_BSN  8976*8
-#define MPEG2_AAC_MAX_CHNLS_12_BSN 12804*8
-#define MPEG2_AAC_MAX_CHNLS_48_BSN 51216*8 
 
 /* SMPTE 302M */
 #define SMPTE_302M_AUDIO_BS 65024*8
