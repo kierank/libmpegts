@@ -23,10 +23,23 @@
 
 /* Video */
 typedef struct {
-    int level_idc;
+    int level;
+    int profile;
     int bitrate;      /* max bitrate (kbit/sec) */
     int vbv;          /* max vbv buffer (kbit) */
 } mpeg2_level_t;
+
+const mpeg2_level_t mpeg2_levels[] =
+{
+    { MPEG2_LEVEL_LOW,      MPEG2_PROFILE_MAIN,   4000000,  475136 },
+    { MPEG2_LEVEL_MAIN,     MPEG2_PROFILE_SIMPLE, 15000000, 1835008 },
+    { MPEG2_LEVEL_MAIN,     MPEG2_PROFILE_MAIN,   15000000, 1835008 },
+    { MPEG2_LEVEL_MAIN,     MPEG2_PROFILE_422,    50000000, 9437184 },
+    { MPEG2_LEVEL_HIGH1440, MPEG2_PROFILE_MAIN,   60000000, 7340732 },
+    { MPEG2_LEVEL_HIGH,     MPEG2_PROFILE_MAIN,   80000000, 9781248 },
+    { MPEG2_LEVEL_HIGHP,    MPEG2_PROFILE_MAIN,   80000000, 9781248 },
+    { 0 }
+};
 
 typedef struct {
     int level_idc;
