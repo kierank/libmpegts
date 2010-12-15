@@ -1,5 +1,5 @@
 /*****************************************************************************
- * atsc.h : ATSC specific headers
+ * atsc.c : ATSC specific functions
  *****************************************************************************
  * Copyright (C) 2010 Kieran Kunhya
  *
@@ -18,20 +18,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02111, USA.
  *****************************************************************************/
 
-#ifndef LIBMPEGTS_ATSC_H
-#define LIBMPEGTS_ATSC_H
+#include "../common.h"
+#include "atsc.h"
 
-/* ATSC stream_types */
-#define AUDIO_AC3         0x81
-#define AUDIO_EAC3        0x84
+/* First Loop of PMT */
 
-/* Descriptors */
-#define ATSC_AC3_DESCRIPTOR_TAG              0x81
-#define ATSC_CAPTION_SERVICE_DESCRIPTOR_TAG  0x86
 
-/* Identifiers */
-#define ATSC_PROGRAM_IDENTIFIER "GA94"
-
-void write_atsc_ac3_descriptor( ts_writer_t *w );
-
-#endif
