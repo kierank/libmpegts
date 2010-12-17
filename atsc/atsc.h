@@ -28,10 +28,9 @@
 /* Descriptors */
 #define ATSC_AC3_DESCRIPTOR_TAG              0x81
 #define ATSC_CAPTION_SERVICE_DESCRIPTOR_TAG  0x86
+#define ATSC_EXTENDED_CHANNEL_NAME_DESCRIPTOR_TAG 0xa0
 
-/* Identifiers */
-#define ATSC_PROGRAM_IDENTIFIER "GA94"
-
-void write_atsc_ac3_descriptor( ts_writer_t *w );
+void write_atsc_ac3_descriptor( bs_t *s );
+void write_caption_service_descriptor( bs_t *s );
 
 #endif
