@@ -91,7 +91,7 @@ void write_hdmv_lpcm_descriptor( ts_writer_t *w, ts_int_stream_t *stream )
 {
     bs_t *s = &w->out.bs;
 
-    write_registration_descriptor( s, HDMV_LPCM_REG_DESCRIPTOR_TAG, 8, "HDMV" );
+    write_registration_descriptor( s, REGISTRATION_DESCRIPTOR_TAG, 8, "HDMV" );
     bs_write( s, 8, 0xff );                // stuffing_bits
     bs_write( s, 8, stream->stream_type ); // stream_coding_type
 
@@ -121,10 +121,8 @@ void write_hdmv_lpcm_descriptor( ts_writer_t *w, ts_int_stream_t *stream )
 }
 
 /* In loop of SIT */
-void write_partial_ts_descriptor( ts_writer_t *w )
+void write_partial_ts_descriptor( ts_writer_t *w, bs_t *s )
 {
-    bs_t *s = &w->out.bs;
-
     bs_write( s, 8, HDMV_PARTIAL_TS_DESCRIPTOR_TAG ); // descriptor_tag
     bs_write( s, 8, 0x08 );      // descriptor_length
     bs_write( s, 2, 0x03 );      // DVB_reserved_future_use

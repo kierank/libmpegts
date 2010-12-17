@@ -29,18 +29,13 @@
 #define AUDIO_DTS_HD_XLL               0x86
 #define AUDIO_EAC3_SECONDARY           0xa1
 #define AUDIO_DTS_HD_SECONDARY         0xa2
-#define SUB_PRESENTATION_GRAPHICS      0x90 
+#define SUB_PRESENTATION_GRAPHICS      0x90
 #define SUB_INTERACTIVE_GRAPHICS       0x91
 #define SUB_TEXT                       0x92
 
 /* Blu-Ray Aspect Ratios */
 #define HDMV_4_3_AR                    0x02
 #define HDMV_16_9_AR                   0x03
-
-/* Registration Descriptor Tags */
-#define HDMV_REG_DESCRIPTOR_TAG        0x05
-#define HDMV_VID_REG_DESCRIPTOR_TAG    0x05
-#define HDMV_LPCM_REG_DESCRIPTOR_TAG   0x05
 
 /* Descriptor Tags */
 #define HDMV_PARTIAL_TS_DESCRIPTOR_TAG 0x63
@@ -50,6 +45,6 @@
 
 void write_hdmv_copy_control_descriptor( ts_writer_t *w );
 void write_hdmv_lpcm_descriptor( ts_writer_t *w, ts_int_stream_t *stream );
-void write_partial_ts_descriptor( ts_writer_t *w );
+void write_partial_ts_descriptor( ts_writer_t *w, bs_t *s );
 
 #endif
