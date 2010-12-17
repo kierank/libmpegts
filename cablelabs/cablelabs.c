@@ -1,5 +1,5 @@
 /*****************************************************************************
- * cablelabs.c : CableLabs specific functions
+ * cablelabs.c : CableLabs (includes SCTE) specific functions
  *****************************************************************************
  * Copyright (C) 2010 Kieran Kunhya
  *
@@ -26,7 +26,7 @@
 /* 3D descriptor */
 void write_cablelabs_3d_descriptor( bs_t *s )
 {
-    bs_write( s, 8, CABLELABS_3D_MPEG2_DESCRIPTOR ); // descriptor_tag
+    bs_write( s, 8, CABLELABS_3D_MPEG2_DESCRIPTOR_TAG ); // descriptor_tag
     bs_write( s, 8, 1 ); // descriptor_length
     bs_write1( s, 1 );   // 3d_frame_packing_data_present
     bs_write( s, 7, 0 ); // reserved

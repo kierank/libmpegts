@@ -1,5 +1,5 @@
 /*****************************************************************************
- * cablelabs.h : CableLabs specific headers
+ * cablelabs.h : CableLabs (includes SCTE) specific headers
  *****************************************************************************
  * Copyright (C) 2010 Kieran Kunhya
  *
