@@ -75,6 +75,124 @@ ts_writer_t *ts_create_writer( void )
 
     return w;
 }
+int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, int vbv_maxrate, int vbv_bufsize, int frame_rate )
+{
+    int bs_mux, bs_oh;
+    int level_idx = -1;
+
+    ts_int_stream_t *stream = find_stream( w, pid );
+
+    if( !stream )
+    {
+        fprintf( stderr, "Invalid PID\n" );
+        return -1;
+    }
+
+    if( !( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 && stream->stream_format == LIBMPEGTS_VIDEO_H264 ) )
+    {
+        fprintf( stderr, "PID is not mpegvideo stream\n" );
+        return -1;
+    }
+
+    if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 )
+    {
+        if( level < MPEG2_LEVEL_LOW || level > MPEG2_LEVEL_HIGHP )
+        {
+            fprintf( stderr, "Invalid MPEG-2 Level\n" );
+            return -1;
+        }
+        if( profile < MPEG2_PROFILE_SIMPLE || profile > MPEG2_PROFILE_422 )
+        {
+            fprintf( stderr, "Invalid MPEG-2 Profile\n" );
+            return -1;
+        }
+
+        for( int i = 0; mpeg2_levels[i].level != 0; i++ )
+        {
+            if( level == mpeg2_levels[i].level && profile == mpeg2_levels[i].profile )
+            {
+                level_idx = i;
+                break;
+            }
+        }
+        if( level_idx == -1 )
+        {
+            fprintf( stderr, "Invalid MPEG-2 Level/Profile combination.\n" );
+            return -1;            
+        }
+    }
+    else if( stream->stream_format == LIBMPEGTS_VIDEO_H264 )
+    {
+        for( int i = 0; h264_levels[i].level_idc != 0; i++ )
+        {
+            if( level == h264_levels[i].level_idc )
+            {
+                level_idx = i;
+                break;
+            }
+        }
+        if( level_idx == -1 )
+        {
+            fprintf( stderr, "Invalid AVC Level\n" );
+            return -1;            
+        }
+        if( profile < H264_BASELINE || profile > H264_CAVLC_444_INTRA )
+        {
+            fprintf( stderr, "Invalid AVC Profile\n" );
+            return -1;
+        }
+    }
+
+    if( !stream->mpegvideo_ctx )
+    {
+        stream->mpegvideo_ctx = calloc( 1, sizeof(stream->mpegvideo_ctx) );
+        if( !stream->mpegvideo_ctx )
+        {
+            fprintf( stderr, "Malloc failed\n" );
+            return -1;
+        }
+    }
+
+    stream->mpegvideo_ctx->level = level;
+    stream->mpegvideo_ctx->profile = profile;
+    stream->mpegvideo_ctx->buffer_size = (double)vbv_bufsize / vbv_maxrate;
+
+    stream->tb.buf_size = TB_SIZE;
+
+    if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 )
+    {
+        bs_mux = 0.004 * mpeg2_levels[level_idx].bitrate;
+        bs_oh = 1.0 * mpeg2_levels[level_idx].bitrate/750.0;
+
+        stream->rx = 1.2 * mpeg2_levels[level_idx].bitrate;
+        stream->eb.buf_size = vbv_bufsize;
+
+        if( level == MPEG2_LEVEL_LOW || level == MPEG2_LEVEL_MAIN )
+        {
+            stream->mb.buf_size = bs_mux + bs_oh + mpeg2_levels[level_idx].vbv - vbv_bufsize;
+            stream->rbx = mpeg2_levels[level_idx].bitrate;
+        }
+        else
+        {
+            stream->mb.buf_size = bs_mux + bs_oh;
+            stream->rbx = MIN( 1.05 * vbv_maxrate, mpeg2_levels[level_idx].bitrate );
+        }
+    }
+    else if( stream->stream_format == LIBMPEGTS_VIDEO_H264 )
+    {
+        bs_mux = 0.004 * MAX( 1200 * h264_levels[level_idx].bitrate, 2000000 );
+        bs_oh = 1.0 * MAX( 1200 * h264_levels[level_idx].bitrate, 2000000 )/750.0;
+
+        stream->mb.buf_size = bs_mux + bs_oh;
+        stream->eb.buf_size = 1200 * h264_levels[level_idx].cpb;
+
+        stream->rx = 1200 * h264_levels[level_idx].bitrate;
+        stream->rbx = 1200 * h264_levels[level_idx].bitrate;
+    }
+
+    return 0;
+}
+
 int ts_setup_302m_stream( ts_writer_t *w, int pid, int bit_depth, int num_channels )
 {
     if( w->ts_type == TS_TYPE_BLU_RAY )
