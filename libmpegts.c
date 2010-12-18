@@ -54,6 +54,63 @@ static int steam_type_table[23][2] =
     { LIBMPEGTS_SUB_DVB,     PRIVATE_DATA },
     { 0 },
 };
+
+/* Descriptors */
+static void write_smoothing_buffer_descriptor( bs_t *s, ts_int_program_t *program );
+static void write_video_stream_descriptor( bs_t *s, ts_int_stream_t *stream );
+static void write_avc_descriptor( bs_t *s, ts_int_stream_t *stream );
+static void write_data_stream_alignment_descriptor( bs_t *s );
+static void write_timestamp( bs_t *s, uint64_t timestamp );
+static void write_null_packet( ts_writer_t *w );
+
+ts_writer_t *ts_create_writer( void )
+{
+    ts_writer_t *w = calloc( 1, sizeof(*w) );
+
+    if( !w )
+    {
+        fprintf( stderr, "Malloc failed\n" );
+        return -1;
+    }
+
+    return w;
+}
+int ts_setup_302m_stream( ts_writer_t *w, int pid, int bit_depth, int num_channels )
+{
+    if( w->ts_type == TS_TYPE_BLU_RAY )
+    {
+        fprintf( stderr, "SMPTE 302M not allowed in Blu-Ray\n" );
+        return -1;
+    }
+    else if( !(bit_depth == 16 || bit_depth == 20 || bit_depth == 24) )
+    {
+        fprintf( stderr, "Invalid Bit Depth for SMPTE 302M\n" );
+        return -1;
+    }
+    else if( (num_channels & 1) || num_channels <= 0 || num_channels > 8 )
+    {
+        fprintf( stderr, "Invalid number of channels for SMPTE 302M\n" );
+        return -1;
+    }
+
+    ts_int_stream_t *stream = find_stream( w, pid );
+
+    if( !stream )
+    {
+        fprintf( stderr, "Invalid PID\n" );
+        return -1;
+    }
+
+    stream->lpcm_ctx->bits_per_sample = bit_depth;
+    stream->lpcm_ctx->num_channels = num_channels;
+
+    stream->main_b.buf_size = SMPTE_302M_AUDIO_BS;
+
+    /* 302M frame size is bit_depth / 4 + 1 */
+    stream->rx = 1.2 * ((bit_depth >> 2) + 1) * SMPTE_302M_AUDIO_SR * 8;
+
+    return 0;
+}
 int write_padding( bs_t *s, uint64_t start )
 {
     bs_flush( s );
