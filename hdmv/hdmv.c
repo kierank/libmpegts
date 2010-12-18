@@ -54,7 +54,7 @@ int ts_setup_dtcp( ts_writer_t *w, uint8_t byte_1, uint8_t byte_2 )
     return 0;
 }
 
-/* First loop of PMT Descriptors */
+/***** First Loop of PMT Descriptors *****/
 void write_hdmv_copy_control_descriptor( ts_writer_t *w, bs_t *s )
 {
     bs_write( s, 8, HDMV_COPY_CTRL_DESCRIPTOR_TAG ); // descriptor_tag
@@ -64,7 +64,7 @@ void write_hdmv_copy_control_descriptor( ts_writer_t *w, bs_t *s )
     bs_write( s, 8, w->dtcp_ctx->byte_2 ); // private_data_byte
 }
 
-/* Second loop of PMT Descriptor */
+/**** Second Loop of PMT Descriptors *****/
 void write_hdmv_video_registration_descriptor( bs_t *s, ts_int_stream_t *stream )
 {
     char *format_id = "HDMV";
@@ -113,7 +113,7 @@ void write_hdmv_lpcm_descriptor( bs_t *s, ts_int_stream_t *stream )
 
 }
 
-/* In loop of SIT */
+/***** In loop of SIT *****/
 void write_partial_ts_descriptor( ts_writer_t *w, bs_t *s )
 {
     bs_write( s, 8, HDMV_PARTIAL_TS_DESCRIPTOR_TAG ); // descriptor_tag

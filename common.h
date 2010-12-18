@@ -95,5 +95,11 @@
 #define MIN(a,b) ( (a)<(b) ? (a) : (b) )
 #define MAX(a,b) ( (a)>(b) ? (a) : (b) )
 
+enum adaptation_field_control_e
+{
+    PAYLOAD_ONLY = 1,
+    ADAPT_FIELD_ONLY = 2,
+    ADAPT_FIELD_AND_PAYLOAD = 3,
+};
 
 #endif
