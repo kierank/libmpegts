@@ -21,7 +21,7 @@
 #include "../common.h"
 #include "cablelabs.h"
 
-/***** First Loop of PMT *****/
+/***** First Loop of PMT Descriptors *****/
 /* 3D descriptor */
 void write_cablelabs_3d_descriptor( bs_t *s )
 {
@@ -31,6 +31,7 @@ void write_cablelabs_3d_descriptor( bs_t *s )
     bs_write( s, 7, 0 ); // reserved
 }
 
+/**** Second Loop of PMT Descriptors *****/
 /* Adaptation Descriptor */
 void write_scte_adaptation_descriptor( bs_t *s )
 {
