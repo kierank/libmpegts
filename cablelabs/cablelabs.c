@@ -31,7 +31,7 @@ void write_cablelabs_3d_descriptor( bs_t *s )
     bs_write( s, 7, 0 ); // reserved
 }
 
-/**** Second Loop of PMT Descriptors *****/
+/***** Second Loop of PMT Descriptors *****/
 /* Adaptation Descriptor */
 void write_scte_adaptation_descriptor( bs_t *s )
 {
