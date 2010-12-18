@@ -62,12 +62,22 @@ void write_dvb_au_information( ts_writer_t *w, bs_t *s, ts_int_stream_t *stream,
     {
         bs_write1( &q, stream->mpegvideo_ctx->profile == H264_BASELINE ); // constraint_set0_flag
         bs_write1( &q, stream->mpegvideo_ctx->profile <= H264_MAIN );     // constraint_set1_flag
+        bs_write1( &q, 0 );                                               // constraint_set2_flag
+        if( stream->mpegvideo_ctx->level == 9 && stream->mpegvideo_ctx->profile <= H264_MAIN ) // level 1b
+            bs_write1( &q, 1 );                                           // constraint_set3_flag
+        else if( stream->mpegvideo_ctx->profile == H264_HIGH_10_INTRA   ||
+                 stream->mpegvideo_ctx->profile == H264_CAVLC_444_INTRA ||
+                 stream->mpegvideo_ctx->profile == H264_HIGH_444_INTRA )
+            bs_write1( &q, 1 );                                           // constraint_set3_flag
+        else
+            bs_write1( &q, 0 );                                           // constraint_set3_flag
+        bs_write1( &q, 0 );                                               // constraint_set4_flag
+        bs_write1( &q, 0 );                                               // constraint_set5_flag
     }
     else
-        bs_write( &q, 2, 0 );
- 
-    bs_write1( &q, 0 );                                                   // constraint_set2_flag
-    bs_write( &q, 5, 0 );                                                 // AU_AVC_compatible_flags
+        bs_write( &q, 5, 0 );
+
+    bs_write( &q, 2, 0 );                                                 // AU_AVC_compatible_flags
     bs_write( &q, 8, stream->mpegvideo_ctx->level & 0xff );               // level_idc
 
     /* reserved bytes */

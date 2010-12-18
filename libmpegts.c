@@ -186,9 +186,19 @@ static void write_avc_descriptor( bs_t *s, ts_int_stream_t *stream )
 
     bs_write1( s, stream->mpegvideo_ctx->profile == H264_BASELINE ); // constraint_set0_flag
     bs_write1( s, stream->mpegvideo_ctx->profile <= H264_MAIN );     // constraint_set1_flag
-    bs_write1( s, 0 );                                             // constraint_set2_flag
+    bs_write1( s, 0 );                                               // constraint_set2_flag
+        if( stream->mpegvideo_ctx->level == 9 && stream->mpegvideo_ctx->profile <= H264_MAIN ) // level 1b
+            bs_write1( s, 1 );                                           // constraint_set3_flag
+        else if( stream->mpegvideo_ctx->profile == H264_HIGH_10_INTRA   ||
+                 stream->mpegvideo_ctx->profile == H264_CAVLC_444_INTRA ||
+                 stream->mpegvideo_ctx->profile == H264_HIGH_444_INTRA )
+            bs_write1( s, 1 );                                           // constraint_set3_flag
+        else
+            bs_write1( s, 0 );                                           // constraint_set3_flag
+    bs_write1( s, 0 );                                               // constraint_set4_flag
+    bs_write1( s, 0 );                                               // constraint_set5_flag
 
-    bs_write( s, 5, 0 );    // reserved
+    bs_write( s, 2, 0 );    // reserved
     bs_write( s, 8, stream->mpegvideo_ctx->level & 0xff ); // level_idc
     bs_write( s, 1, 0 );    // AVC_still_present
     bs_write( s, 1, 0 );    // AVC_24_hour_picture_flag
