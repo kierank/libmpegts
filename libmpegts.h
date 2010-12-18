@@ -148,7 +148,13 @@ enum h264_profile_t
     H264_BASELINE,
     H264_MAIN,
     H264_HIGH,
-    H264_HIGH10,
+    H264_HIGH_10,
+    H264_HIGH_422,
+    H264_HIGH_444_PRED,
+    H264_HIGH_10_INTRA,
+    H264_HIGH_422_INTRA,
+    H264_HIGH_444_INTRA,
+    H264_CAVLC_444_INTRA,
 };
 
 /* Opaque Structure */
