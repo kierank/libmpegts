@@ -70,7 +70,7 @@ ts_writer_t *ts_create_writer( void )
     if( !w )
     {
         fprintf( stderr, "Malloc failed\n" );
-        return -1;
+        return NULL;
     }
 
     return w;
