@@ -150,4 +150,75 @@ enum h264_profile_t
     H264_HIGH,
     H264_HIGH10,
 };
+
+/* Opaque Structure */
+typedef struct ts_writer_t ts_writer_t;
+
+/* General Stream Information
+ *
+ * PID
+ * stream_format - Use stream formats above
+ * stream_id - See Table 2-22 in ISO 13818-1
+ * lang_code - ISO 639 Part 2 Language code (some non-standard codes exist)
+ * * has_stream_identifier - Set to 1 if stream identifier is present
+ * * stream_identifier - Stream identifier value FIXME all
+ *
+ * dvb_au - write DVB AU_information elements (video streams only)
+ * dvb_au_frame_rate - DVB AU_information frame rate code (see above #defines)
+ *
+ * hdmv_frame_rate - For H.264 "Frame-rate = time_scale/num_units_in_tick/2" TODO MPEG-2 (see above #defines)
+ * hdmv_aspect_ratio - either LIBMPEGTS_HDMV_AR_4_3 or LIBMPEGTS_HDMV_AR_16_9
+ * hdmv_video_format - Video format (see above #defines)
+ * */
+
+typedef struct ts_stream_t
+{
+    int pid;
+    int stream_format;
+    int stream_id;
+    char *lang_code;
+
+    int dvb_au;
+    int dvb_au_frame_rate;
+
+    int hdmv_frame_rate;
+    int hdmv_aspect_ratio;
+    int hdmv_video_format;
+} ts_stream_t;
+/***** Additional Codec-Specific functions *****/
+/* Some formats may require extra information. Setup the relevant information using the following functions */
+
+/* Video */
+/* Setup / Update MPEG Video
+ * Mandatory before writing any MPEG Video Stream.
+ *
+ * MPEG-2 Video Stream
+ *
+ * level - MPEG-2 level
+ * profile - MPEG-2 profile
+ * vbv_maxrate - maximum bitrate into the vbv in bits/s
+ * vbv_bufsize - vbv buffer size
+ * frame_rate - MPEG-2 framerate code
+ *
+ * AVC Stream
+ *
+ * level_idc / profile_idc are as defined in the H.264 Specification.
+ * vbv_maxrate - maximum bitrate into the vbv in bits/s
+ * vbv_bufsize - vbv buffer size
+ * frame_rate - not used in AVC
+ *
+ * The only supported H.264 files are those with a Buffering Period SEI at each keyframe but nal_hrd_parameters_present set to 0.
+ * This is owing to bugs/inconsistencies in the TS specification. This does not apply to Blu-Ray.
+ */
+/* Setup / Update SMPTE 302M Stream
+ * Mandatory before writing any 302M Stream.
+ *
+ * bit_depth - 16, 20 or 24 bits per sample.
+ * num_channels - 2, 4, 6 or 8 channels.
+ *
+ * As per SMPTE 302M the sample rate can only be 48000Hz.
+ * Notes: The PTS of a SMPTE 302M frame shall be within 2ms of the corresponding video frame
+ *        It is the responsibility of the calling application to encapsulate the SMPTE 302M data. */
+
+int ts_setup_302m_stream( ts_writer_t *w, int pid, int bit_depth, int num_channels );
 #endif
