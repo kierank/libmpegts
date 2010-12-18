@@ -21,8 +21,7 @@
 #include "../common.h"
 #include "cablelabs.h"
 
-/* First Loop of PMT */
-
+/***** First Loop of PMT *****/
 /* 3D descriptor */
 void write_cablelabs_3d_descriptor( bs_t *s )
 {
