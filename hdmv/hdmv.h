@@ -33,18 +33,15 @@
 #define SUB_INTERACTIVE_GRAPHICS       0x91
 #define SUB_TEXT                       0x92
 
-/* Blu-Ray Aspect Ratios */
-#define HDMV_4_3_AR                    0x02
-#define HDMV_16_9_AR                   0x03
-
 /* Descriptor Tags */
 #define HDMV_PARTIAL_TS_DESCRIPTOR_TAG 0x63
 #define HDMV_AC3_DESCRIPTOR_TAG        0x81
 #define HDMV_CAPTION_DESCRIPTOR_TAG    0x86
 #define HDMV_COPY_CTRL_DESCRIPTOR_TAG  0x88
 
-void write_hdmv_copy_control_descriptor( ts_writer_t *w );
-void write_hdmv_lpcm_descriptor( ts_writer_t *w, ts_int_stream_t *stream );
+void write_hdmv_copy_control_descriptor( ts_writer_t *w, bs_t *s );
+void write_hdmv_video_registration_descriptor( bs_t *s, ts_int_stream_t *stream );
+void write_hdmv_lpcm_descriptor( bs_t *s, ts_int_stream_t *stream );
 void write_partial_ts_descriptor( ts_writer_t *w, bs_t *s );
 
 #endif

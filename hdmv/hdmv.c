@@ -21,26 +21,6 @@
 #include "../common.h"
 #include "hdmv.h"
 
-int ts_setup_hdmv_video_stream( ts_writer_t *w, int pid, int frame_rate, int aspect_ratio )
-{
-    ts_int_stream_t *stream = find_stream( w, pid );
-
-    if( !stream )
-    {
-        fprintf( stderr, "Invalid PID\n" );
-        return -1;
-    }
-
-    stream->hdmv_video_ctx = calloc( 1, sizeof(stream->hdmv_video_ctx) );
-    if( !stream->hdmv_video_ctx )
-        return -1;
-
-    stream->hdmv_video_ctx->frame_rate = frame_rate;
-    stream->hdmv_video_ctx->aspect_ratio = aspect_ratio;
-
-    return 0;
-}
-
 int ts_setup_hdmv_lpcm_stream( ts_writer_t *w, int pid, int num_channels, int sample_rate, int bits_per_sample )
 {
     ts_int_stream_t *stream = find_stream( w, pid );
@@ -75,10 +55,8 @@ int ts_setup_dtcp( ts_writer_t *w, uint8_t byte_1, uint8_t byte_2 )
 }
 
 /* First loop of PMT Descriptors */
-void write_hdmv_copy_control_descriptor( ts_writer_t *w )
+void write_hdmv_copy_control_descriptor( ts_writer_t *w, bs_t *s )
 {
-    bs_t *s = &w->out.bs;
-
     bs_write( s, 8, HDMV_COPY_CTRL_DESCRIPTOR_TAG ); // descriptor_tag
     bs_write( s, 8, 0x04 );           // descriptor_length
     bs_write( s, 16, 0x0fff );        // CA_System_ID
@@ -87,10 +65,25 @@ void write_hdmv_copy_control_descriptor( ts_writer_t *w )
 }
 
 /* Second loop of PMT Descriptor */
-void write_hdmv_lpcm_descriptor( ts_writer_t *w, ts_int_stream_t *stream )
+void write_hdmv_video_registration_descriptor( bs_t *s, ts_int_stream_t *stream )
 {
-    bs_t *s = &w->out.bs;
+    char *format_id = "HDMV";
 
+    bs_write( s, 8, REGISTRATION_DESCRIPTOR_TAG ); // descriptor_tag
+    bs_write( s, 8, 0x8 ); // descriptor_length
+    while( *format_id != '\0' )
+        bs_write( s, 8, *format_id++ );  // format_identifier
+
+    bs_write( s, 8, 0xff ); // stuffing_bits
+    bs_write( s, 8, stream->stream_id ); // stream_coding_type
+    bs_write( s, 4, stream->hdmv_video_format ); // video_format
+    bs_write( s, 4, stream->hdmv_frame_rate );   // frame_rate
+    bs_write( s, 4, stream->hdmv_aspect_ratio ); // aspect_ratio
+    bs_write( s, 4, 0xf ); // stuffing_bits
+}
+
+void write_hdmv_lpcm_descriptor( bs_t *s, ts_int_stream_t *stream )
+{
     write_registration_descriptor( s, REGISTRATION_DESCRIPTOR_TAG, 8, "HDMV" );
     bs_write( s, 8, 0xff );                // stuffing_bits
     bs_write( s, 8, stream->stream_type ); // stream_coding_type
