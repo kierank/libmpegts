@@ -80,6 +80,16 @@ void write_dvb_au_information( ts_writer_t *w, bs_t *s, ts_int_stream_t *stream,
     bs_write( &q, 2, 0 );                                                 // AU_AVC_compatible_flags
     bs_write( &q, 8, stream->mpegvideo_ctx->level & 0xff );               // level_idc
 
+    if( frame->write_pulldown_info )
+    {
+        bs_write1( &q, 1 );   // AU_Pulldown_info_present_flag
+        bs_write( &q, 6, 0 ); // AU_reserved_zero
+        bs_write1( &q, 0 );   // AU_flags_extension_1
+
+        bs_write( &q, 4, 0 ); // AU_reserved_zero
+        bs_write( &q, 4, frame->pic_struct & 0xf ); // AU_Pulldown_info
+    }
+
     /* reserved bytes */
 
     bs_flush( &q );
