@@ -22,7 +22,8 @@
 #define LIBMPEGTS_CODECS_H
 
 /* Video */
-typedef struct {
+typedef struct
+{
     int level;
     int profile;
     int bitrate;      /* max bitrate (kbit/sec) */
@@ -41,7 +42,8 @@ const mpeg2_level_t mpeg2_levels[] =
     { 0 }
 };
 
-typedef struct {
+typedef struct
+{
     int level_idc;
     int bitrate;     /* max bitrate (kbit/sec) */
     int cpb;         /* max vbv buffer (kbit) */
@@ -69,7 +71,8 @@ const h264_level_t h264_levels[] =
 };
 
 /* Audio */
-typedef struct {
+typedef struct
+{
     int max_channels;
     int rxn;         /* Leak rate from Transport Buffer */
     int bsn;         /* Size of Main buffer */
