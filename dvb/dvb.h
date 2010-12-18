@@ -42,3 +42,4 @@
 
 void write_stream_identifier_descriptor( bs_t *s, uint8_t stream_identifier );
 void write_dvb_au_information( ts_writer_t *w, bs_t *s, ts_int_stream_t *stream, ts_int_frame_t *frame );
+#endif
