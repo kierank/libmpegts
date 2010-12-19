@@ -331,6 +331,53 @@ static void write_iso_lang_descriptor( bs_t *s, ts_int_stream_t *stream )
 
     bs_write(s, 8, 0 ); // audio_type
 }
+/**** PSI ****/
+static void write_pat( ts_writer_t *w )
+{
+    int start;
+    bs_t *s = &w->out.bs;
+
+    write_packet_header( w, 1, PAT_PID, PAYLOAD_ONLY, &w->pat_cc );
+    bs_write( s, 8, 0 ); // pointer field
+
+    start = bs_pos( s );
+    bs_write( s, 8, PAT_TID ); // table_id
+    bs_write1( s, 1 );      // section_syntax_indicator
+    bs_write1( s, 0 );      // '0'
+    bs_write( s, 2, 0x03 ); // reserved`
+
+    // FIXME when multiple programs are allowed do this properly
+    int section_length = w->num_programs * 4 + w->network_pid * 4 + 9;
+    bs_write( s, 12, section_length & 0x3ff );
+
+    bs_write( s, 16, w->ts_id & 0xffff ); // transport_stream_id
+    bs_write( s, 2, 0x03 ); // reserved
+    bs_write( s, 5, 0 );    // version_number
+    bs_write1( s, 1 );      // current_next_indicator
+    bs_write( s, 8, 0 );    // section_number
+    bs_write( s, 8, 0 );    // last_section_number
+
+    if( w->network_pid )
+    {
+        bs_write( s, 16, 0 );   // program_number
+        bs_write( s, 3, 0x07 ); // reserved
+        bs_write( s, 13, w->network_pid & 0x1fff ); // network_PID
+    }
+
+    for( int i = 0; i < w->num_programs; i++ )
+    {
+        bs_write( s, 16, w->programs[i]->program_num & 0xffff ); // program_number
+        bs_write( s, 3, 0x07 ); // reserved
+        bs_write( s, 13, w->programs[i]->pmt.pid & 0x1fff ); // program_map_PID
+    }
+
+    bs_flush( s );
+    write_crc( s, start );
+
+    // -40 to include header and pointer field
+    write_padding( s, start - 40 );
+    increase_pcr( w, 1 );
+}
 static void write_timestamp( bs_t *s, uint64_t timestamp )
 {
     bs_write( s, 3, (timestamp >> 30) & 0x07 ); // timestamp [32..30]
