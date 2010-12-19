@@ -63,13 +63,13 @@
 #define LIBMPEGTS_STREAM_ID_PRIVATE_1  0xbd 
 #define LIBMPEGTS_STREAM_ID_PRIVATE_2  0xbf
 
-/* MPEG Audio (all types): 0xbf-0xdf */
-#define LIBMPEGTS_STREAM_ID_MPEGAUDIO  0xbf
+/* MPEG Audio (all types): 0xc0-0xdf */
+#define LIBMPEGTS_STREAM_ID_MPEGAUDIO  0xc0
 
 /* MPEG Video (all types): 0xe0-0xef */
 #define LIBMPEGTS_STREAM_ID_MPEGVIDEO  0xe0
 
-/**** Blu-Ray Information *****/
+/**** Blu-Ray Information ****/
 /* Blu-Ray Aspect Ratios */
 #define LIBMPEGTS_HDMV_AR_4_3          2
 #define LIBMPEGTS_HDMV_AR_16_9         3
