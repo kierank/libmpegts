@@ -35,6 +35,13 @@
 #define SDT_TID         0x42
 #define EIT_TID         0x4e
 #define TDT_TID         0x70
+
+/* Default Retransmit times (ms) */
+#define EIT_MAX_RETRANS_TIME          2000
+#define EIT_OTHER_TS_MAX_RETRANS_TIME 10000
+#define TDT_MAX_RETRANS_TIME 25000
+#define TOT_MAX_RETRANS_TIME 25000
+
 /* Private Data Bytes data_field_tags */
 #define ANNOUNCEMENT_SWITCHING_DATA_FIELD 0x01
 #define AU_INFORMATION_DATA_FIELD         0x02
