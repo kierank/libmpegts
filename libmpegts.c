@@ -88,7 +88,7 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
         return -1;
     }
 
-    if( !( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 && stream->stream_format == LIBMPEGTS_VIDEO_H264 ) )
+    if( !( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_H264 ) )
     {
         fprintf( stderr, "PID is not mpegvideo stream\n" );
         return -1;
@@ -118,7 +118,7 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
         if( level_idx == -1 )
         {
             fprintf( stderr, "Invalid MPEG-2 Level/Profile combination.\n" );
-            return -1;            
+            return -1;
         }
     }
     else if( stream->stream_format == LIBMPEGTS_VIDEO_H264 )
