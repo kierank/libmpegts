@@ -91,9 +91,8 @@ static const uint32_t crc_table[256] =
 uint32_t crc_32( uint8_t *bytes, int length )
 {
    uint32_t crc = 0xffffffff;
-   int i;
 
-   for( i = 0; i < length; i++ )
+   for( int i = 0; i < length; i++ )
    {
        int idx = ((crc >> 24) ^ bytes[i]) & 0xff;
        crc = crc_table[idx] ^ (crc << 8);
