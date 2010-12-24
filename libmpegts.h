@@ -202,6 +202,14 @@ typedef struct
     int hdmv_aspect_ratio;
     int hdmv_video_format;
 } ts_stream_t;
+
+/**** Stream attributes (DVB) ****/
+
+#define DVB_SERVICE_TYPE_DIGITAL_TELEVISION  0x01
+#define DVB_SERVICE_TYPE_DIGITAL_RADIO_SOUND 0x02
+#define DVB_SERVICE_TYPE_TELETEXT            0x03
+#define DVB_SERVICE_TYPE_ADVANCED_CODEC_SD   0x16
+#define DVB_SERVICE_TYPE_ADVANCED_CODEC_HD   0x19
 /***** Additional Codec-Specific functions *****/
 /* Some formats may require extra information. Setup the relevant information using the following functions */
 
