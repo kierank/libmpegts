@@ -186,12 +186,14 @@ typedef struct ts_writer_t ts_writer_t;
  * hdmv_video_format - Video format (see above #defines)
  * */
 
-typedef struct ts_stream_t
+typedef struct
 {
     int pid;
     int stream_format;
     int stream_id;
-    char *lang_code;
+
+    int write_lang_code;
+    char lang_code[4];
 
     int dvb_au;
     int dvb_au_frame_rate;
