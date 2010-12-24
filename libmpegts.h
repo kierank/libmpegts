@@ -21,6 +21,15 @@
 #ifndef LIBMPEGTS_H
 #define LIBMPEGTS_H
 
+#if !defined(_STDINT_H) && !defined(_STDINT_H_) && \
+    !defined(_INTTYPES_H) && !defined(_INTTYPES_H_)
+# ifdef _MSC_VER
+#  pragma message("You must include stdint.h or inttypes.h before libmpegts.h")
+# else
+#  warning You must include stdint.h or inttypes.h before libmpegts.h
+# endif
+#endif
+
 /**** Version ****/
 #define LIBMPEGTS_API_VERSION_MAJOR 0
 #define LIBMPEGTS_API_VERSION_MINOR 1
