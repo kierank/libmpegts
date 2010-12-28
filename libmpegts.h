@@ -41,8 +41,8 @@
 
 #define LIBMPEGTS_AUDIO_MPEG1 32
 #define LIBMPEGTS_AUDIO_MPEG2 33
-#define LIBMPEGTS_AUDIO_ADTS  34
-#define LIBMPEGTS_AUDIO_LATM  35
+#define LIBMPEGTS_AUDIO_ADTS  34 /* Effectively MPEG-2 AAC */
+#define LIBMPEGTS_AUDIO_LATM  35 /* Effectively MPEG-4 AAC */
 #define LIBMPEGTS_AUDIO_AC3   36
 #define LIBMPEGTS_AUDIO_EAC3  37
 #define LIBMPEGTS_AUDIO_LPCM  38 /* Blu-Ray only */
@@ -109,9 +109,9 @@
 #define LIBMPEGTS_DVB_AU_PIC_STRUCT_BOT_FIELD 3
 
 /* DVB-AU Coding type MPEG-2 */
-#define LIBMPEGTS_CODING_TYPE_I 1
-#define LIBMPEGTS_CODING_TYPE_P 2
-#define LIBMPEGTS_CODING_TYPE_B 3
+#define LIBMPEGTS_CODING_TYPE_I        1
+#define LIBMPEGTS_CODING_TYPE_P        2
+#define LIBMPEGTS_CODING_TYPE_B        3
 
 /* DVB-AU Coding type H.264 */
 #define LIBMPEGTS_CODING_TYPE_SLICE_IDR (1<<3)
@@ -174,7 +174,13 @@ typedef struct ts_writer_t ts_writer_t;
  * PID
  * stream_format - Use stream formats above
  * stream_id - See Table 2-22 in ISO 13818-1
- * lang_code - ISO 639 Part 2 Language code (some non-standard codes exist)
+ *
+ * max_frame_size - Size of largest frame in 90kHz ticks.
+ * For video streams this is the size of the buffer in seconds (i.e vbv_bufsize * 90000/vbv_maxrate)
+ * For audio streams this is the size of one frame in seconds. (e.g. for ac3 1536 * 90000/samplerate )
+ *
+ * write_lang_code - Write ISO 639 descriptor
+ * lang_code - ISO 639 Part 2 Language code (or non-standard codes)
  * * has_stream_identifier - Set to 1 if stream identifier is present
  * * stream_identifier - Stream identifier value FIXME all
  *
@@ -191,6 +197,7 @@ typedef struct
     int pid;
     int stream_format;
     int stream_id;
+    int max_frame_size;
 
     int write_lang_code;
     char lang_code[4];
