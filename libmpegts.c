@@ -407,7 +407,7 @@ void write_crc( bs_t *s, uint64_t start )
 }
 static void write_null_packet( ts_writer_t *w )
 {
-    uint64_t start;
+    int start;
     int cc = 0;
 
     bs_t *s = &w->out.bs;
