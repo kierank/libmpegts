@@ -64,6 +64,8 @@ static void write_smoothing_buffer_descriptor( bs_t *s, ts_int_program_t *progra
 static void write_video_stream_descriptor( bs_t *s, ts_int_stream_t *stream );
 static void write_avc_descriptor( bs_t *s, ts_int_stream_t *stream );
 static void write_data_stream_alignment_descriptor( bs_t *s );
+/* Tables */
+static void write_pat( ts_writer_t *w );
 static void write_timestamp( bs_t *s, uint64_t timestamp );
 static void write_null_packet( ts_writer_t *w );
 
