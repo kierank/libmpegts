@@ -99,4 +99,9 @@ const aac_buffer_t aac_buffers[] =
 #define MISC_AUDIO_BS 3584*8
 #define MISC_AUDIO_RXN 2000000
 
+/* Teletext */
+#define TELETEXT_BS  480*8
+#define TELETEXT_RXN 6750000
+#define TELETEXT_BTTX  1504*8
+
 #endif
