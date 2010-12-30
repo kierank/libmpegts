@@ -30,33 +30,36 @@ void write_stream_identifier_descriptor( bs_t *s, uint8_t stream_identifier )
 }
 
 void write_dvb_au_information( ts_writer_t *w, bs_t *s, ts_int_stream_t *stream, ts_int_frame_t *frame )
+void write_dvb_au_information( bs_t *s, ts_int_pes_t *pes )
 {
     bs_t q;
-    uint8_t temp[100];
+    uint8_t temp[128];
+
+    ts_int_stream_t *stream = pes->stream;
 
     bs_write( s, 8, AU_INFORMATION_DATA_FIELD ); // data_field_tag
-    bs_init( &q, temp, 100 );
-    
-    if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 )
-        bs_write( &q, 4, 1 );    // AU_coding_format
-    else if( stream->stream_format == LIBMPEGTS_VIDEO_H264 )
-        bs_write( &q, 4, 0x02 ); // AU_coding_format
+    bs_init( &q, temp, 128 );
 
-    bs_write( &q, 4, 0 ); // AU_coding_type_information
-    bs_write( &q, 2, 0 ); // AU_ref_pic_idc
-    bs_write( &q, 2, 0 ); // AU_pic_struct
+    if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 )
+        bs_write( &q, 4, 1 );   // AU_coding_format
+    else if( stream->stream_format == LIBMPEGTS_VIDEO_H264 )
+        bs_write( &q, 4, 0x2 ); // AU_coding_format
+
+    bs_write( &q, 4, pes->frame_type );  // AU_coding_type_information
+    bs_write( &q, 2, pes->ref_pic_idc ); // AU_ref_pic_idc
+    bs_write( &q, 2, pes->pic_struct );  // AU_pic_struct
 
     bs_write1( &q, 1 ); // AU_PTS_present_flag
     bs_write1( &q, 1 ); // AU_profile_info_present_flag
     bs_write1( &q, 1 ); // AU_stream_info_present_flag
     bs_write1( &q, 0 ); // AU_trick_mode_info_present_flag
 
-    bs_write32( &q, 0 & 0xffffffff ); // AU_PTS_32
+    bs_write32( &q, (pes->pts * 300) & 0xffffffff ); // AU_PTS_32
 
     bs_write( &q, 4, 0 ); // reserved
     bs_write( &q, 4, stream->dvb_au_frame_rate ); // AU_frame_rate_code
 
-    bs_write( &q, 8, stream->mpegvideo_ctx->profile & 0xff );         // profile_idc
+    bs_write( &q, 8, stream->mpegvideo_ctx->profile & 0xff ); // profile_idc
 
     if( stream->stream_format == LIBMPEGTS_VIDEO_H264 )
     {
@@ -80,14 +83,14 @@ void write_dvb_au_information( ts_writer_t *w, bs_t *s, ts_int_stream_t *stream,
     bs_write( &q, 2, 0 );                                                 // AU_AVC_compatible_flags
     bs_write( &q, 8, stream->mpegvideo_ctx->level & 0xff );               // level_idc
 
-    if( frame->write_pulldown_info )
+    if( pes->write_pulldown_info )
     {
         bs_write1( &q, 1 );   // AU_Pulldown_info_present_flag
         bs_write( &q, 6, 0 ); // AU_reserved_zero
         bs_write1( &q, 0 );   // AU_flags_extension_1
 
         bs_write( &q, 4, 0 ); // AU_reserved_zero
-        bs_write( &q, 4, frame->pic_struct & 0xf ); // AU_Pulldown_info
+        bs_write( &q, 4, pes->pic_struct & 0xf ); // AU_Pulldown_info
     }
 
     /* reserved bytes */
