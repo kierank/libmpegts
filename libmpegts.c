@@ -64,6 +64,8 @@ static void write_smoothing_buffer_descriptor( bs_t *s, ts_int_program_t *progra
 static void write_video_stream_descriptor( bs_t *s, ts_int_stream_t *stream );
 static void write_avc_descriptor( bs_t *s, ts_int_stream_t *stream );
 static void write_data_stream_alignment_descriptor( bs_t *s );
+static void write_ac3_descriptor( ts_writer_t *w, bs_t *s, int e_ac3 );
+
 static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *program, ts_int_pes_t *pes,
                                    int write_pcr, int flags, int stuffing );
 /* Tables */
@@ -333,6 +335,42 @@ static void write_avc_descriptor( bs_t *s, ts_int_stream_t *stream )
     bs_write( s, 1, 0 );    // AVC_24_hour_picture_flag
     bs_write( s, 6, 0x3f ); // reserved
 }
+
+static void write_data_stream_alignment_descriptor( bs_t *s )
+{
+    bs_write( s, 8, DATA_STREAM_ALIGNMENT_DESCRIPTOR_TAG ); // descriptor_tag
+    bs_write( s, 8, 1 );               // descriptor_length
+    bs_write( s, 8, 1 );               // alignment_type
+}
+
+/* AC-3 Descriptor for DVB and Blu-Ray */
+static void write_ac3_descriptor( ts_writer_t *w, bs_t *s, int e_ac3 )
+{
+    if( w->ts_type == TS_TYPE_BLU_RAY )
+        bs_write( s, 8, HDMV_AC3_DESCRIPTOR_TAG ); // descriptor_tag
+    else if( e_ac3 )
+        bs_write( s, 8, DVB_EAC3_DESCRIPTOR_TAG ); // descriptor_tag
+    else
+        bs_write( s, 8, DVB_AC3_DESCRIPTOR_TAG );  // descriptor_tag
+
+    bs_write( s, 8, 1 );        // descriptor_length
+
+    bs_write1( s, 0 );          // component_type_flag
+    bs_write1( s, 0 );          // bsid_flag
+    bs_write1( s, 0 );          // mainid_flag
+    bs_write1( s, 0 );          // asvc_flag
+
+    if( e_ac3 )
+    {
+        bs_write1( s, 0 );      // mixinfoexists
+        bs_write1( s, 0 );      // substream1_flag
+        bs_write1( s, 0 );      // substream2_flag
+        bs_write1( s, 0 );      // substream3_flag
+    }
+    else
+        bs_write( s, 4, 0 );    // reserved
+}
+
 static void write_iso_lang_descriptor( bs_t *s, ts_int_stream_t *stream )
 {
     bs_write( s, 8, ISO_693_LANGUAGE_DESCRIPTOR_TAG ); // descriptor_tag
