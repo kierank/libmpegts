@@ -21,10 +21,10 @@
 #include "../common.h"
 #include "dvb.h"
 
-/* Descriptors */
+/**** PMT Second Loop Descriptors ****/
 void write_stream_identifier_descriptor( bs_t *s, uint8_t stream_identifier )
 {
-    bs_write( s, 8, STREAM_IDENTIFIER_DESCRIPTOR_TAG ); // descriptor_tag
+    bs_write( s, 8, DVB_STREAM_IDENTIFIER_DESCRIPTOR_TAG ); // descriptor_tag
     bs_write( s, 8, 1 );                 // descriptor_length
     bs_write( s, 8, stream_identifier ); // component_tag
 }
