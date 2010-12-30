@@ -60,16 +60,19 @@
 
 /* SMPTE Stream Formats */
 #define LIBMPEGTS_AUDIO_302M  96
+#define LIBMPEGTS_ANCILLARY_RDD11 97
+#define LIBMPEGTS_ANCILLARY_2038  98
 
 /* DVB Stream Formats */
-#define LIBMPEGTS_SUB_DVB     128
+#define LIBMPEGTS_SUB_DVB      128
+#define LIBMPEGTS_DVB_TELETEXT 129
 
 /* Misc */
-#define LIBMPEGTS_TELETEXT    160
 
-/* Stream IDs */
+
+/**** Stream IDs ****/
 /* SMPTE 302M, AC3 and DVB subtitles use Private Stream 1 */
-#define LIBMPEGTS_STREAM_ID_PRIVATE_1  0xbd 
+#define LIBMPEGTS_STREAM_ID_PRIVATE_1  0xbd
 #define LIBMPEGTS_STREAM_ID_PRIVATE_2  0xbf
 
 /* MPEG Audio (all types): 0xc0-0xdf */
