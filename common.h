@@ -85,6 +85,7 @@
 #define AVC_DESCRIPTOR_TAG                   0x28
 #define SVC_EXTENSION_DESCRIPTOR_TAG         0x30
 #define MVC_EXTENSION_DESCRIPTOR_TAG         0x31
+#define USER_DEFINED_DESCRIPTOR_TAG          0xc4
 
 #define TB_SIZE       4096
 #define RX_SYS        1000000
