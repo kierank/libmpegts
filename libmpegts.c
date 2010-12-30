@@ -64,6 +64,8 @@ static void write_smoothing_buffer_descriptor( bs_t *s, ts_int_program_t *progra
 static void write_video_stream_descriptor( bs_t *s, ts_int_stream_t *stream );
 static void write_avc_descriptor( bs_t *s, ts_int_stream_t *stream );
 static void write_data_stream_alignment_descriptor( bs_t *s );
+static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *program, ts_int_pes_t *pes,
+                                   int write_pcr, int flags, int stuffing );
 /* Tables */
 static void write_pat( ts_writer_t *w );
 static void write_timestamp( bs_t *s, uint64_t timestamp );
@@ -337,6 +339,85 @@ static void write_iso_lang_descriptor( bs_t *s, ts_int_stream_t *stream )
 
     bs_write(s, 8, 0 ); // audio_type
 }
+static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *program, ts_int_pes_t *pes,
+                                   int write_pcr, int flags, int stuffing )
+{
+    int private_data_flag, write_dvb_au, random_access, priority;
+    int start = bs_pos( s );
+    uint8_t temp[256], temp2[128];
+    bs_t q, r;
+
+    private_data_flag = write_dvb_au = random_access = priority = 0;
+
+    if( pes )
+    {
+        ts_int_stream_t *stream = pes->stream;
+        random_access = pes->random_access;
+        priority = pes->priority;
+        pes->random_access = 0; /* don't write this flag again */
+
+        if( stream->dvb_au && ( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_H264 ) )
+            private_data_flag = write_dvb_au = 1;
+    }
+
+    /* initialise temporary bitstream */
+    bs_init( &q, temp, 256 );
+
+    if( flags )
+    {
+        bs_write1( &q, 0 ); // discontinuity_indicator
+        bs_write1( &q, random_access ); // random_access_indicator
+        bs_write1( &q, priority );  // elementary_stream_priority_indicator
+        bs_write1( &q, write_pcr ); // PCR_flag
+        bs_write1( &q, 0 ); // OPCR_flag
+        bs_write1( &q, 0 ); // splicing_point_flag
+        bs_write1( &q, private_data_flag ); // transport_private_data_flag
+        bs_write1( &q, 0 ); // adaptation_field_extension_flag
+        if( write_pcr )
+        {
+             uint64_t pcr, base, extension;
+             int64_t mod = (int64_t)1 << 33;
+
+             program->last_pcr = pcr = program->cur_pcr * TS_CLOCK;
+             pcr += TS_CLOCK * 7.0 * 8.0 / w->ts_muxrate;
+
+             base = (pcr / 300) % mod;
+             extension = pcr % 300;
+
+             // program_clock_reference_base
+             bs_write32( &q, base >> 1 );
+             bs_write1( &q, (base & 1) );
+             // reserved
+             bs_write( &q, 6, 0x3f );
+             // program_clock_reference_extension
+             bs_write( &q, 8, (extension >> 1) & 0xff );
+             bs_write1( &q, (extension & 1 ) );
+        }
+    }
+
+    if( private_data_flag )
+    {
+        /* initialise another temporary bitstream */
+        bs_init( &r, temp2, 128 );
+
+        if( write_dvb_au )
+            write_dvb_au_information( &r, pes );
+
+        bs_flush ( &r );
+        bs_write( s, 8, bs_pos( &r ) >> 3 ); // transport_private_data_length
+        write_bytes( &q, temp2, bs_pos( &r ) >> 3 );
+    }
+
+    for( int i = 0; i < stuffing; i++ )
+        bs_write( &q, 8, 0xff );
+
+    bs_flush( &q );
+    bs_write( s, 8, bs_pos( &q ) >> 3 ); // adaptation_field_length
+    write_bytes( s, temp, bs_pos( &q ) >> 3 );
+
+    return (bs_pos( s ) - start) >> 3;
+}
+
 /**** PSI ****/
 static void write_pat( ts_writer_t *w )
 {
