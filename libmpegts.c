@@ -83,6 +83,8 @@ ts_writer_t *ts_create_writer( void )
 
     return w;
 }
+/* Codec-specific features */
+
 int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, int vbv_maxrate, int vbv_bufsize, int frame_rate )
 {
     int bs_mux, bs_oh;
@@ -142,7 +144,7 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
         if( level_idx == -1 )
         {
             fprintf( stderr, "Invalid AVC Level\n" );
-            return -1;            
+            return -1;
         }
         if( profile < H264_BASELINE || profile > H264_CAVLC_444_INTRA )
         {
@@ -153,7 +155,7 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
 
     if( !stream->mpegvideo_ctx )
     {
-        stream->mpegvideo_ctx = calloc( 1, sizeof(stream->mpegvideo_ctx) );
+        stream->mpegvideo_ctx = calloc( 1, sizeof(mpegvideo_stream_ctx_t) );
         if( !stream->mpegvideo_ctx )
         {
             fprintf( stderr, "Malloc failed\n" );
