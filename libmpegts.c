@@ -69,6 +69,7 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
 /* Tables */
 static void write_pat( ts_writer_t *w );
 static void write_timestamp( bs_t *s, uint64_t timestamp );
+static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_frame, ts_int_pes_t *out_pes );
 static void write_null_packet( ts_writer_t *w );
 
 ts_writer_t *ts_create_writer( void )
@@ -490,6 +491,83 @@ void write_crc( bs_t *s, uint64_t start )
 
     bs_write32( s, crc );
 }
+
+static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_frame, ts_int_pes_t *out_pes )
+{
+    bs_t s, q;
+    uint8_t temp[128];
+    int header_size, total_size;
+    int64_t mod = (int64_t)1 << 33;
+
+    if( out_pes->dts > out_pes->pts )
+        fprintf( stderr, "\nError: DTS > PTS\n" );
+
+    bs_init( &s, out_pes->data, in_frame->size + 200 );
+
+    ts_int_stream_t *stream = out_pes->stream;
+
+    bs_write( &s, 24, 1 );   // packet_start_code_prefix
+    bs_write( &s, 8, stream->stream_id ); // stream_id
+
+    /* Initialise temp buffer */
+    bs_init( &q, temp, 96 );
+
+    bs_write( &q, 2, 0x2 );  // '10'
+    bs_write( &q, 2, 0 );    // PES_scrambling_control
+    bs_write1( &q, 0 );      // PES_priority
+    if( stream->stream_format == LIBMPEGTS_ANCILLARY_RDD11 )
+        bs_write1( &q, 0 );  // data_alignment_indicator
+    else
+        bs_write1( &q, 1 );  // data_alignment_indicator
+    bs_write1( &q, 1 );      // copyright
+    bs_write1( &q, 1 );      // original_or_copy
+
+    int same_timestamps = out_pes->dts == out_pes->pts;
+
+    bs_write( &q, 2, 0x02 + !same_timestamps ); // pts_dts_flags
+
+    bs_write1( &q, 0 );      // ESCR_flag
+    bs_write1( &q, 0 );      // ES_rate_flag
+    bs_write1( &q, 0 );      // DSM_trick_mode_flag
+    bs_write1( &q, 0 );      // additional_copy_info_flag
+    bs_write1( &q, 0 );      // PES_CRC_flag
+    bs_write1( &q, 0 );      // PES_extension_flag
+
+    if( same_timestamps )
+        bs_write( &q, 8, 0x05 ); // PES_header_data_length (PTS only)
+    else
+        bs_write( &q, 8, 0x0a ); // PES_header_data_length (PTS and DTS)
+
+    bs_write( &q, 4, 0x02 + !same_timestamps ); // '0010' or '0011'
+
+    write_timestamp( &q, out_pes->pts % mod );     // PTS
+
+    if( !same_timestamps )
+    {
+        bs_write( &q, 4, 1 );                      // '0001'
+        write_timestamp( &q, out_pes->dts % mod ); // DTS
+    }
+
+    bs_flush( &q );
+    total_size = in_frame->size + (bs_pos( &q ) >> 3);
+
+    if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_H264 )
+        bs_write( &s, 16, 0 );          // PES_packet_length
+    else
+        bs_write( &s, 16, total_size ); // PES_packet_length
+
+    write_bytes( &s, temp, bs_pos( &q ) >> 3 );
+    header_size = bs_pos( &s ) >> 3;
+    write_bytes( &s, in_frame->data, in_frame->size );
+
+    bs_flush( &s );
+
+    out_pes->size = out_pes->bytes_left = bs_pos( &s ) >> 3;
+    out_pes->cur_pos = out_pes->data;
+
+    return header_size;
+}
+
 static void write_null_packet( ts_writer_t *w )
 {
     int start;
