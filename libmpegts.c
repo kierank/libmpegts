@@ -480,10 +480,10 @@ static void write_timestamp( bs_t *s, uint64_t timestamp )
     bs_write1( s, 1 );                          // marker_bit
 }
 
-void write_crc( bs_t *s, uint64_t start )
+void write_crc( bs_t *s, int start )
 {
     uint8_t *p_start = s->p_start;
-    int pos = (bs_pos( s ) - start) / 8;
+    int pos = (bs_pos( s ) - start) >> 3;
     uint32_t crc = crc_32( s->p - pos, pos );
 
     bs_init( s, s->p, s->p_end - s->p );
