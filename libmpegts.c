@@ -25,10 +25,11 @@
 #include "dvb/dvb.h"
 #include "hdmv/hdmv.h"
 #include "isdb/isdb.h"
+#include "smpte/smpte.h"
 #include "crc/crc.h"
 #include <math.h>
 
-static int steam_type_table[23][2] =
+static int steam_type_table[26][2] =
 {
     { LIBMPEGTS_VIDEO_MPEG2, VIDEO_MPEG2 },
     { LIBMPEGTS_VIDEO_H264,  VIDEO_H264 },
@@ -52,6 +53,9 @@ static int steam_type_table[23][2] =
     { LIBMPEGTS_SUB_TEXT,    SUB_TEXT },
     { LIBMPEGTS_AUDIO_302M,  PRIVATE_DATA },
     { LIBMPEGTS_SUB_DVB,     PRIVATE_DATA },
+    { LIBMPEGTS_DVB_TELETEXT,    PRIVATE_DATA },
+    { LIBMPEGTS_ANCILLARY_RDD11, PRIVATE_DATA },
+    { LIBMPEGTS_ANCILLARY_2038,  PRIVATE_DATA },
     { 0 },
 };
 
