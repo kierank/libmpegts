@@ -459,6 +459,18 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
     return (bs_pos( s ) - start) >> 3;
 }
 
+static void write_pcr_empty( ts_writer_t *w, ts_int_program_t *program )
+{
+    bs_t *s = &w->out.bs;
+
+    write_packet_header( w, 0, program->pcr_stream->pid, ADAPT_FIELD_ONLY, &program->pcr_stream->cc );
+    int stuffing = 184 - 6 - 2; /* pcr, flags and length */
+    write_adaptation_field( w, s, program, NULL, 1, 1, stuffing );
+
+    add_to_buffer( &program->pcr_stream->tb );
+    increase_pcr( w, 1 );
+}
+
 /**** PSI ****/
 static void write_pat( ts_writer_t *w )
 {
