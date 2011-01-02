@@ -68,6 +68,9 @@ static void write_ac3_descriptor( ts_writer_t *w, bs_t *s, int e_ac3 );
 
 static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *program, ts_int_pes_t *pes,
                                    int write_pcr, int flags, int stuffing );
+/* Buffer management */
+static void add_to_buffer( buffer_t *buffer );
+static void drip_buffer( ts_int_program_t *program, ts_int_stream_t *stream, buffer_t *buffer, double next_pcr );
 /* Tables */
 static void write_pat( ts_writer_t *w );
 static void write_timestamp( bs_t *s, uint64_t timestamp );
@@ -379,6 +382,28 @@ static void write_iso_lang_descriptor( bs_t *s, ts_int_stream_t *stream )
         bs_write( s, 8, stream->lang_code[i] );
 
     bs_write(s, 8, 0 ); // audio_type
+}
+/**** Buffer management ****/
+static void add_to_buffer( buffer_t *buffer )
+{
+    buffer->cur_buf += TS_PACKET_SIZE * 8;
+}
+
+static void drip_buffer( ts_int_program_t *program, ts_int_stream_t *stream, buffer_t *buffer, double next_pcr )
+{
+    if( buffer->last_byte_removal_time == 0.0 )
+    {
+        buffer->last_byte_removal_time = program->cur_pcr;
+        buffer->cur_buf -= 8;
+    }
+
+    while( buffer->last_byte_removal_time + (8.0 / stream->rx) < next_pcr )
+    {
+        buffer->cur_buf -= 8;
+        buffer->last_byte_removal_time += 8.0 / stream->rx;
+    }
+
+    buffer->cur_buf = MAX( buffer->cur_buf, 0 );
 }
 static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *program, ts_int_pes_t *pes,
                                    int write_pcr, int flags, int stuffing )
