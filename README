@@ -1,0 +1,14 @@
+libmpegts README
+
+Single Program Transport stream muxer
+
+Things which work:
+
+CBR and VBR TS muxing of AVC, AC-3, MP2 and AAC/HE-AAC.
+DVB AU_Information
+(Very likely MPEG-2 as well but not tested)
+
+Things which don't work:
+
+Blu-Ray and associated formats
+DTS
