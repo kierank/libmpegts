@@ -47,9 +47,9 @@ typedef struct
     int level_idc;
     int bitrate;     /* max bitrate (kbit/sec) */
     int cpb;         /* max vbv buffer (kbit) */
-} h264_level_t;
+} avc_level_t;
 
-const h264_level_t h264_levels[] =
+const avc_level_t avc_levels[] =
 {
     { 10,     64,     64 },
     {  9,    128,    350 }, /* 1b */
@@ -95,12 +95,16 @@ const aac_buffer_t aac_buffers[] =
 #define SMPTE_302M_AUDIO_BS 65024*8
 #define SMPTE_302M_AUDIO_SR 48000
 
-/* Misc */
+/* Misc Audio */
 #define MISC_AUDIO_BS 3584*8
 #define MISC_AUDIO_RXN 2000000
 
+/* DVB Subtitles */
+#define DVB_SUB_DDS_T_BS 1024*8
+
+
 /* Teletext */
-#define TELETEXT_BS  480*8
+#define TELETEXT_T_BS  480*8 /* Seems to have an odd Transport Buffer size */
 #define TELETEXT_RXN 6750000
 #define TELETEXT_BTTX  1504*8
 
