@@ -34,7 +34,7 @@
 
 /* Standardised Audio/Video stream_types */
 #define VIDEO_MPEG2       0x02
-#define VIDEO_H264        0x1b
+#define VIDEO_AVC         0x1b
 
 #define AUDIO_MPEG1       0x03
 #define AUDIO_MPEG2       0x04
@@ -96,11 +96,233 @@
 #define MIN(a,b) ( (a)<(b) ? (a) : (b) )
 #define MAX(a,b) ( (a)>(b) ? (a) : (b) )
 
+/* Internal Program & Stream Structures */
+typedef struct
+{
+    int level;
+    int profile;
+    int frame_rate;
+} mpegvideo_stream_ctx_t;
+
+typedef struct
+{
+    int num_channels;
+    int sample_rate;
+    int bits_per_sample;
+} lpcm_stream_ctx_t;
+
+typedef struct
+{
+    int sample_rate_code;
+    int bsid;
+    int bit_rate_mode;
+    int surround_mode;
+    int bsmod;
+    int num_channels;
+} atsc_ac3_ctx_t;
+
+typedef struct
+{
+    int frame_rate;
+    int aspect_ratio;
+} hdmv_video_stream_ctx_t;
+
+/* Blu-Ray DTCP */
+typedef struct
+{
+    uint8_t byte_1;
+    uint8_t byte_2;
+} ts_dtcp_t;
+
+typedef struct
+{
+    /* in bytes */
+    int adapt_field_size;
+    int pes_header_size;
+    int cur_pos;
+} buffer_queue_t;
+
+typedef struct
+{
+    int buf_size; /* size of buffer */
+    int cur_buf;  /* current buffer fill */
+
+    double last_byte_removal_time;
+} buffer_t;
+
+typedef struct
+{
+    int pid;
+    int cc;
+    int stream_format; /* internal stream format type */
+    int stream_type;   /* stream_type syntax element */
+    int stream_id;
+
+    int version_number;
+
+    /* Stream contexts */
+    mpegvideo_stream_ctx_t  *mpegvideo_ctx;
+    lpcm_stream_ctx_t       *lpcm_ctx;
+    atsc_ac3_ctx_t          *atsc_ac3_ctx;
+
+    int num_channels;
+    int max_frame_size;
+
+    /* T_STD */
+    buffer_t tb; /* transport buffer */
+    int rx;      /* flow from transport to multiplex buffer (video) or main buffer (audio) */
+    buffer_t mb; /* multiplex buffer (video) or main buffer (audio) */
+    buffer_t eb; /* elementary buffer */
+    int rbx;     /* flow from multiplex to elementary buffer (video) */
+
+    /* Language Codes */
+    int write_lang_code;
+    char lang_code[4];
+    int audio_type;
+
+    int aac_profile;
+
+    /* ATSC */
+
+    /* DVB */
+    /* Stream Identifier */
+    int has_stream_identifier;
+    int stream_identifier;
+
+    /* DVB AU_Information */
+    int dvb_au;
+    int dvb_au_frame_rate;
+
+    /* ISDB */
+
+    /* CableLabs */
+
+    /* Blu-Ray */
+    int hdmv_video_format;
+    int hdmv_frame_rate;
+    int hdmv_aspect_ratio;
+
+} ts_int_stream_t;
+
+typedef struct
+{
+    uint8_t *data;
+    int size;
+    uint8_t *cur_pos;
+    int bytes_left;
+    int handover_bytes_left;
+
+    /* stream context associated with pes */
+    ts_int_stream_t *stream;
+
+    int header_size;
+    int random_access;
+    int priority;
+
+    int64_t dts;
+    int64_t pts;
+
+    /* DVB AU_Information specific fields */
+    uint8_t frame_type;
+    int ref_pic_idc;
+    int write_pulldown_info;
+    int pic_struct;
+} ts_int_pes_t;
+
+typedef struct
+{
+    ts_int_stream_t pmt;
+    int program_num;
+
+    int num_streams;
+    ts_int_stream_t *streams[MAX_STREAMS];
+    ts_int_stream_t *pcr_stream;
+
+    double cur_pcr;
+    uint64_t last_pcr;
+
+    int64_t video_dts;
+
+    //sdt_program_ctx_t *sdt_ctx;
+    int cablelabs_is_3d;
+
+    int sb_leak_rate;
+    int sb_size;
+} ts_int_program_t;
+
+struct ts_writer_t
+{
+    struct
+    {
+        int         i_bitstream;
+        uint8_t     *p_bitstream;
+        bs_t        bs;
+    } out;
+
+    uint64_t bytes_written;
+
+    int ts_type;
+    int ts_id;
+
+    int cbr;
+    int ts_muxrate;
+
+    int pat_cc;
+
+    int num_programs;
+    ts_int_program_t *programs[MAX_PROGRAMS];
+
+    int pat_period;
+    int pcr_period;
+    int first_input;
+
+    int network_pid;
+    int network_id;
+
+    int num_buffered_frames;
+    ts_int_pes_t **buffered_frames;
+
+    /* system control */
+    buffer_t tb;     /* transport buffer */
+    buffer_t main_b; /* main buffer */
+
+    int rx_sys;      /* flow from transport to main buffer */
+    int r_sys;       /* flow from main buffer to system decoder */
+
+    /* CableLabs */
+    int legacy_constraints;
+
+    /* DVB-specific */
+    ts_int_stream_t *nit;
+    ts_int_stream_t *sdt;
+    ts_int_stream_t *eit;
+    ts_int_stream_t *tdt;
+    ts_int_stream_t *sit;
+
+    uint64_t last_pat;
+    uint64_t last_pmt;
+    uint64_t last_nit;
+    uint64_t last_sdt;
+    uint64_t last_eit;
+    uint64_t last_tdt;
+    uint64_t last_sit;
+
+    ts_dtcp_t *dtcp_ctx;
+};
+
 enum adaptation_field_control_e
 {
     PAYLOAD_ONLY = 1,
     ADAPT_FIELD_ONLY = 2,
     ADAPT_FIELD_AND_PAYLOAD = 3,
 };
+
+void write_bytes( bs_t *s, uint8_t *bytes, int length );
+void write_packet_header( ts_writer_t *w, int start, int pid, int adapt_field, int *cc );
+void write_registration_descriptor( bs_t *s, int descriptor_tag, int descriptor_length, char *format_id );
+void write_crc( bs_t *s, int start );
+int write_padding( bs_t *s, int start );
+void increase_pcr( ts_writer_t *w, int num_packets );
+ts_int_stream_t *find_stream( ts_writer_t *w, int pid );
 
 #endif

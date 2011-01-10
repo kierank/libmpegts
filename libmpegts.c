@@ -32,7 +32,7 @@
 static int steam_type_table[26][2] =
 {
     { LIBMPEGTS_VIDEO_MPEG2, VIDEO_MPEG2 },
-    { LIBMPEGTS_VIDEO_H264,  VIDEO_H264 },
+    { LIBMPEGTS_VIDEO_AVC,  VIDEO_AVC },
     { LIBMPEGTS_AUDIO_MPEG1, AUDIO_MPEG1 },
     { LIBMPEGTS_AUDIO_MPEG2, AUDIO_MPEG2 },
     { LIBMPEGTS_AUDIO_ADTS,  AUDIO_ADTS },
@@ -66,13 +66,20 @@ static void write_avc_descriptor( bs_t *s, ts_int_stream_t *stream );
 static void write_data_stream_alignment_descriptor( bs_t *s );
 static void write_ac3_descriptor( ts_writer_t *w, bs_t *s, int e_ac3 );
 
+static int check_pcr( ts_writer_t *w, ts_int_program_t *program );
+static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, int first );
 static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *program, ts_int_pes_t *pes,
                                    int write_pcr, int flags, int stuffing );
+static void write_pcr_empty( ts_writer_t *w, ts_int_program_t *program );
+
 /* Buffer management */
 static void add_to_buffer( buffer_t *buffer );
 static void drip_buffer( ts_int_program_t *program, ts_int_stream_t *stream, buffer_t *buffer, double next_pcr );
+
 /* Tables */
 static void write_pat( ts_writer_t *w );
+static void write_pmt( ts_writer_t *w, ts_int_program_t *program );
+
 static void write_timestamp( bs_t *s, uint64_t timestamp );
 static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_frame, ts_int_pes_t *out_pes );
 static void write_null_packet( ts_writer_t *w );
@@ -89,6 +96,196 @@ ts_writer_t *ts_create_writer( void )
 
     return w;
 }
+
+int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
+{
+    // TODO check for PID collisions, add MPTS support
+    if( params->ts_type < TS_TYPE_DVB || params->ts_type > TS_TYPE_BLU_RAY )
+    {
+        fprintf( stderr, "Invalid Transport Stream type.\n" );
+        return -1;
+    }
+
+    if( params->num_programs > 1 )
+    {
+        fprintf( stderr, "Multiple program transport streams are not yet supported.\n" );
+        return -1;
+    }
+
+    if( !params->cbr && params->num_programs > 1 )
+    {
+        fprintf( stderr, "Multiple program transport streams cannot be variable bitrate.\n" );
+        return -1;
+    }
+
+    if( params->network_pid && ( params->network_pid < 0x10 || params->network_pid == 0x1fff ) )
+    {
+        fprintf( stderr, "Invalid network_PID.\n" );
+        return -1;
+    }
+
+    if( !params->muxrate )
+    {
+        fprintf( stderr, "Muxrate must be nonzero\n" );
+        return -1;
+    }
+
+    BOOLIFY( params->cbr );
+    BOOLIFY( params->legacy_constraints );
+
+    int internal_pcr_pid, video_stream;
+    internal_pcr_pid = video_stream = 0;
+    ts_int_program_t *cur_program = calloc( 1, sizeof(*cur_program) );
+    if( !cur_program )
+    {
+        fprintf( stderr, "Malloc failed\n" );
+        return -1;
+    }
+
+    w->num_programs = 1;
+    w->programs[0] = cur_program;
+
+    cur_program->cur_pcr = TS_START;
+    cur_program->pmt.pid = params->programs[0].pmt_pid;
+    cur_program->program_num = params->programs[0].program_num;
+
+    cur_program->cablelabs_is_3d = params->programs[0].cablelabs_is_3d;
+    cur_program->sb_leak_rate = params->programs[0].sb_leak_rate;
+    cur_program->sb_size = params->programs[0].sb_size;
+    cur_program->video_dts = -1;
+
+    for( int i = 0; i < params->programs[0].num_streams; i++ )
+    {
+        ts_stream_t *stream_in = &params->programs[0].streams[i];
+
+        if( stream_in->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream_in->stream_format == LIBMPEGTS_VIDEO_AVC )
+        {
+            if( !video_stream )
+                video_stream = 1;
+            else
+            {
+                fprintf( stderr, "Multiple video streams not allowed\n" );
+                return -1;
+            }
+        }
+
+        ts_int_stream_t *cur_stream = calloc( 1, sizeof(*cur_stream) );
+        if( !cur_stream )
+        {
+            fprintf( stderr, "Malloc failed\n" );
+            return -1;
+        }
+
+        cur_stream->pid = stream_in->pid;
+        cur_stream->stream_format = stream_in->stream_format;
+        for( int j = 0; steam_type_table[j][0] != 0; j++ )
+        {
+            if( cur_stream->stream_format == steam_type_table[j][0] )
+            {
+                /* DVB AC-3 and EAC-3 are different */
+                if( w->ts_type == TS_TYPE_DVB &&
+                    ( cur_stream->stream_format == LIBMPEGTS_AUDIO_AC3 || cur_stream->stream_format == LIBMPEGTS_AUDIO_EAC3 ) )
+                    j++;
+
+                cur_stream->stream_type = steam_type_table[j][1];
+                break;
+            }
+        }
+
+        if( !cur_stream->stream_type )
+        {
+            fprintf( stderr, "Unsupported Stream Format\n" );
+            return -1;
+        }
+
+        if( stream_in->write_lang_code )
+        {
+            cur_stream->write_lang_code = 1;
+            memcpy( cur_stream->lang_code, stream_in->lang_code, 4 );
+        }
+
+        cur_stream->audio_type = stream_in->audio_type;
+
+        if( cur_stream->pid == params->programs[0].pcr_pid )
+        {
+            cur_program->pcr_stream = cur_stream;
+            internal_pcr_pid = 1;
+        }
+
+        cur_stream->stream_id = stream_in->stream_id;
+        cur_stream->max_frame_size = stream_in->max_frame_size;
+
+        if( stream_in->has_stream_identifier )
+        {
+            cur_stream->has_stream_identifier = 1;
+            cur_stream->stream_identifier = stream_in->stream_identifier & 0xff;
+        }
+
+        cur_stream->dvb_au = stream_in->dvb_au;
+        cur_stream->dvb_au_frame_rate = stream_in->dvb_au_frame_rate;
+
+        cur_stream->hdmv_frame_rate = stream_in->hdmv_frame_rate;
+        cur_stream->hdmv_aspect_ratio = stream_in->hdmv_aspect_ratio;
+        cur_stream->hdmv_video_format = stream_in->hdmv_video_format;
+
+        // TODO Teletext is an exception
+        cur_stream->tb.buf_size = TB_SIZE;
+
+        /* setup T-STD buffers when audio buffers sizes are independent of number of channels */
+        if( cur_stream->stream_format == LIBMPEGTS_AUDIO_MPEG1 || cur_stream->stream_format == LIBMPEGTS_AUDIO_MPEG2 )
+        {
+            /* use the defaults */
+            cur_stream->rx = MISC_AUDIO_RXN;
+            cur_stream->mb.buf_size = MISC_AUDIO_BS;
+        }
+        else if( cur_stream->stream_format == LIBMPEGTS_AUDIO_AC3 || cur_stream->stream_format == LIBMPEGTS_AUDIO_EAC3 )
+        {
+            cur_stream->rx = MISC_AUDIO_RXN;
+            cur_stream->mb.buf_size = w->ts_type == TS_TYPE_ATSC ? AC3_BS_ATSC : AC3_BS_DVB;
+        }
+
+        cur_program->streams[cur_program->num_streams] = cur_stream;
+        cur_program->num_streams++;
+    }
+
+    /* create separate PCR stream if necessary */
+    if( !internal_pcr_pid )
+    {
+        ts_int_stream_t *pcr_stream = calloc( 1, sizeof(*pcr_stream) );
+        if( !pcr_stream )
+            return -1;
+        pcr_stream->pid = params->programs[0].pcr_pid;
+        cur_program->pcr_stream = pcr_stream;
+    }
+
+    w->ts_id = params->ts_id;
+    w->ts_muxrate = params->muxrate;
+    w->cbr = params->cbr;
+    w->ts_type = params->ts_type;
+    w->network_pid = params->network_pid;
+    w->legacy_constraints = params->legacy_constraints;
+
+    w->pcr_period = params->pcr_period ? params->pcr_period : PCR_MAX_RETRANS_TIME;
+    w->pat_period = params->pat_period ? params->pat_period : PAT_MAX_RETRANS_TIME;
+    //w->pmt_period = params->pmt_period ? params->pmt_period : PMT_MAX_RETRANS_TIME; FIXME
+
+    w->network_id = params->network_id ? params->network_id : DEFAULT_NID;
+
+    w->tb.buf_size = TB_SIZE;
+    w->rx_sys = RX_SYS;
+    w->r_sys = MAX( R_SYS_DEFAULT, (double)w->ts_muxrate / 500 );
+
+    // FIXME realloc if necessary
+
+    w->out.i_bitstream = w->ts_muxrate >> 3;
+    w->out.p_bitstream = calloc( 1, w->out.i_bitstream );
+
+    if( !w->out.p_bitstream )
+        return -1;
+
+    return 0;
+}
+
 /* Codec-specific features */
 
 int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, int vbv_maxrate, int vbv_bufsize, int frame_rate )
@@ -104,9 +301,9 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
         return -1;
     }
 
-    if( !( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_H264 ) )
+    if( !( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_AVC ) )
     {
-        fprintf( stderr, "PID is not mpegvideo stream\n" );
+        fprintf( stderr, "PID is not an MPEG video stream\n" );
         return -1;
     }
 
@@ -137,11 +334,11 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
             return -1;
         }
     }
-    else if( stream->stream_format == LIBMPEGTS_VIDEO_H264 )
+    else if( stream->stream_format == LIBMPEGTS_VIDEO_AVC )
     {
-        for( int i = 0; h264_levels[i].level_idc != 0; i++ )
+        for( int i = 0; avc_levels[i].level_idc != 0; i++ )
         {
-            if( level == h264_levels[i].level_idc )
+            if( level == avc_levels[i].level_idc )
             {
                 level_idx = i;
                 break;
@@ -152,7 +349,7 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
             fprintf( stderr, "Invalid AVC Level\n" );
             return -1;
         }
-        if( profile < H264_BASELINE || profile > H264_CAVLC_444_INTRA )
+        if( profile < AVC_BASELINE || profile > AVC_CAVLC_444_INTRA )
         {
             fprintf( stderr, "Invalid AVC Profile\n" );
             return -1;
@@ -171,9 +368,6 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
 
     stream->mpegvideo_ctx->level = level;
     stream->mpegvideo_ctx->profile = profile;
-    stream->mpegvideo_ctx->buffer_size = (double)vbv_bufsize / vbv_maxrate;
-
-    stream->tb.buf_size = TB_SIZE;
 
     if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 )
     {
@@ -194,20 +388,62 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
             stream->rbx = MIN( 1.05 * vbv_maxrate, mpeg2_levels[level_idx].bitrate );
         }
     }
-    else if( stream->stream_format == LIBMPEGTS_VIDEO_H264 )
+    else if( stream->stream_format == LIBMPEGTS_VIDEO_AVC )
     {
-        bs_mux = 0.004 * MAX( 1200 * h264_levels[level_idx].bitrate, 2000000 );
-        bs_oh = 1.0 * MAX( 1200 * h264_levels[level_idx].bitrate, 2000000 )/750.0;
+        bs_mux = 0.004 * MAX( 1200 * avc_levels[level_idx].bitrate, 2000000 );
+        bs_oh = 1.0 * MAX( 1200 * avc_levels[level_idx].bitrate, 2000000 )/750.0;
 
         stream->mb.buf_size = bs_mux + bs_oh;
-        stream->eb.buf_size = 1200 * h264_levels[level_idx].cpb;
+        stream->eb.buf_size = 1200 * avc_levels[level_idx].cpb;
 
-        stream->rx = 1200 * h264_levels[level_idx].bitrate;
-        stream->rbx = 1200 * h264_levels[level_idx].bitrate;
+        stream->rx = 1200 * avc_levels[level_idx].bitrate;
+        stream->rbx = 1200 * avc_levels[level_idx].bitrate;
     }
 
     return 0;
 }
+
+int ts_setup_mpeg4_aac_stream( ts_writer_t *w, int pid, int profile_and_level, int num_channels )
+{
+    if( w->ts_type == TS_TYPE_BLU_RAY )
+    {
+        fprintf( stderr, "AAC not allowed in Blu-Ray\n" );
+        return -1;
+    }
+
+    if( !profile_and_level )
+    {
+        fprintf( stderr, "Invalid Profile and Level value\n" );
+        return -1;
+    }
+
+    if( num_channels <= 0 || num_channels > 48 )
+    {
+        fprintf( stderr, "Invalid number of channels\n" );
+        return -1;
+    }
+
+    ts_int_stream_t *stream = find_stream( w, pid );
+
+    if( !stream )
+    {
+        fprintf( stderr, "Invalid PID\n" );
+        return -1;
+    }
+
+    stream->aac_profile = profile_and_level;
+
+    for( int i = 0; aac_buffers[i].max_channels != 0; i++ )
+    {
+        if( num_channels <= aac_buffers[i].max_channels )
+        {
+            stream->rx = aac_buffers[i].rxn;
+            stream->mb.buf_size = aac_buffers[i].bsn;  
+        }	
+    }
+
+    return 0;
+};
 
 int ts_setup_302m_stream( ts_writer_t *w, int pid, int bit_depth, int num_channels )
 {
@@ -235,17 +471,375 @@ int ts_setup_302m_stream( ts_writer_t *w, int pid, int bit_depth, int num_channe
         return -1;
     }
 
+    stream->lpcm_ctx = calloc( 1, sizeof(stream->lpcm_ctx) );
+    if( !stream->lpcm_ctx )
+        return -1;
+
     stream->lpcm_ctx->bits_per_sample = bit_depth;
     stream->lpcm_ctx->num_channels = num_channels;
 
-    stream->main_b.buf_size = SMPTE_302M_AUDIO_BS;
+    stream->mb.buf_size = SMPTE_302M_AUDIO_BS;
 
     /* 302M frame size is bit_depth / 4 + 1 */
     stream->rx = 1.2 * ((bit_depth >> 2) + 1) * SMPTE_302M_AUDIO_SR * 8;
 
     return 0;
 }
-int write_padding( bs_t *s, uint64_t start )
+
+int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t **out, int *len )
+{
+    ts_int_program_t *program = w->programs[0];
+    ts_int_stream_t *stream;
+
+    int cur_num_pes = w->num_buffered_frames;
+    ts_int_pes_t **cur_pes = w->buffered_frames; // FIXME improve name
+    int64_t video_dts = program->video_dts;
+
+    int stuffing, flags, pkt_bytes_left, write_pcr, write_adapt_field, adapt_field_len, pes_start, running;
+    uint8_t temp[200];
+    bs_t q;
+    bs_t *s = &w->out.bs;
+    bs_init( s, w->out.p_bitstream, w->out.i_bitstream );
+
+    if( num_frames < 0 )
+    {
+        fprintf( stderr, "Invalid number of frames\n" );
+        return -1;
+    }
+
+    if( num_frames )
+    {
+        w->num_buffered_frames = num_frames;
+        w->buffered_frames = calloc( 1, num_frames * sizeof(w->buffered_frames) );
+        if( !w->buffered_frames )
+        {
+           fprintf( stderr, "Malloc failed\n" );
+           return -1;
+        }
+    }
+
+    for( int i = 0; i < num_frames; i++ )
+    {
+        stream = find_stream( w, frames[i].pid );
+
+        if( !stream )
+        {
+            fprintf( stderr, "PID %i not found for frame %i\n", frames[i].pid, i );
+            return -1;
+        }
+
+        /* Codec specific parameters */
+        if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_AVC )
+        {
+            if( !stream->mpegvideo_ctx )
+            {
+               fprintf( stderr, "MPEG video stream needs additional information. Call ts_setup_mpegvideo_stream \n" );
+               return -1;
+            }
+            program->video_dts = frames[i].dts;
+        }
+
+        w->buffered_frames[i] = calloc( 1, sizeof(ts_int_pes_t) );
+        if( !w->buffered_frames[i] )
+        {
+           fprintf( stderr, "Malloc failed\n" );
+           return -1;
+        }
+
+        w->buffered_frames[i]->stream = stream;
+        w->buffered_frames[i]->random_access = !!frames[i].random_access;
+        w->buffered_frames[i]->priority = !!frames[i].priority;
+        w->buffered_frames[i]->dts = frames[i].dts;
+        w->buffered_frames[i]->pts = frames[i].pts;
+        w->buffered_frames[i]->frame_type = frames[i].frame_type;
+        w->buffered_frames[i]->ref_pic_idc = frames[i].ref_pic_idc;
+        w->buffered_frames[i]->write_pulldown_info = frames[i].write_pulldown_info;
+        w->buffered_frames[i]->pic_struct = frames[i].pic_struct;
+
+        /* 512 bytes is more than enough for pes overhead */
+        w->buffered_frames[i]->data = calloc( 1, frames[i].size + 512 );
+        if( !w->buffered_frames[i]->data )
+        {
+           fprintf( stderr, "Malloc failed\n" );
+           return -1;
+        }
+
+        w->buffered_frames[i]->header_size = write_pes( w, program, &frames[i], w->buffered_frames[i] );
+    }
+
+    if( !cur_num_pes )
+    {
+        out = NULL;
+        *len = 0;
+        return 0;
+    }
+
+    write_pcr = 0;
+    running = 1;
+
+    if( !w->first_input )
+    {
+        write_pcr_empty( w, program );
+        retransmit_psi_and_si( w, program, 1 );
+        w->first_input = 1;
+    }
+
+    /* earliest arrival time that the pes packet can arrive */
+    double pes_pcr = 0;
+
+    while( cur_num_pes )
+    {
+        ts_int_pes_t *pes = NULL;
+        write_adapt_field = adapt_field_len = write_pcr = 0;
+        pkt_bytes_left = 184;
+
+        if( w->out.bs.p_end - w->out.bs.p < 18800 )
+        {
+            bs_flush( s );
+            uint8_t *bs_bak = w->out.p_bitstream;
+            w->out.i_bitstream += 100000;
+            w->out.p_bitstream = realloc( w->out.p_bitstream, w->out.i_bitstream );
+
+            if( !w->out.p_bitstream )
+                return -1;
+
+            intptr_t delta = w->out.p_bitstream - bs_bak;
+
+            w->out.bs.p_start += delta;
+            w->out.bs.p += delta;
+            w->out.bs.p_end = w->out.p_bitstream + w->out.i_bitstream;
+            bs_realign( s );
+        }
+
+        // FIXME at low bitrates this might need tweaking
+
+        /* check all the non-video packets first */
+        for( int i = 0; i < cur_num_pes; i++ )
+        {
+            if( !pes || cur_pes[i]->dts < pes->dts )
+            {
+                stream = cur_pes[i]->stream;
+                pes_pcr = (double)(cur_pes[i]->dts - stream->max_frame_size)/90000; /* earliest that a frame can arrive */
+                if( cur_pes[i]->stream->stream_format > 31 && program->cur_pcr >= pes_pcr && cur_pes[i]->stream->tb.cur_buf == 0.0 )
+                    pes = cur_pes[i];
+            }
+        }
+
+        /* See if we can write a video packet if non-audio packets can't be written */
+        if( !pes )
+        {
+            for( int i = 0; i < cur_num_pes; i++ )
+            {
+                stream = cur_pes[i]->stream;
+                if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_AVC )
+                {
+                    pes_pcr = (double)(cur_pes[i]->dts - stream->max_frame_size)/90000; /* earliest that a frame can arrive */
+                    if( program->cur_pcr >= pes_pcr && cur_pes[i]->stream->tb.cur_buf == 0.0 )
+                        pes = cur_pes[i];
+                    break;
+                }
+            }
+        }
+
+        if( pes )
+        {
+            stream = pes->stream;
+            pes_pcr = (double)(pes->dts - stream->max_frame_size)/90000; /* earliest that a frame can arrive */
+            pes_start = pes->data == pes->cur_pos; /* flag if packet contains pes header */
+
+            if( (double)pes->dts/90000 < program->cur_pcr )
+                fprintf( stderr, "\n dts is less than pcr pid: %i dts: %f pcr: %f \n", pes->stream->pid, (double)pes->dts/90000, program->cur_pcr);
+
+            bs_init( &q, temp, 128 );
+
+            if( check_pcr( w, program ) )
+            {
+                if( program->pcr_stream == stream )
+                {
+                    /* piggyback pcr on this stream */
+                    write_pcr = 1;
+                    adapt_field_len = write_adaptation_field( w, &q, program, pes, write_pcr, 1, 0 );
+                    pkt_bytes_left -= adapt_field_len;
+                }
+                else
+                    write_pcr_empty( w, program );
+            }
+
+            /* DVB AU_Information is large so consider this case */
+            // FIXME consider cablelabs legacy
+            if( !adapt_field_len && ( pes->random_access || ( pes_start && stream->dvb_au ) ) )
+            {
+                adapt_field_len = write_adaptation_field( w, &q, program, pes, 0, 1, 0 );
+                pkt_bytes_left -= adapt_field_len;
+            }
+
+            if( pes->bytes_left >= pkt_bytes_left )
+            {
+                write_packet_header( w, pes_start, stream->pid, PAYLOAD_ONLY + ((!!adapt_field_len)<<1), &stream->cc );
+                if( adapt_field_len )
+                    write_adaptation_field( w, s, program, pes, write_pcr, 1, 0 );
+
+                write_bytes( s, pes->cur_pos, pkt_bytes_left );
+                pes->cur_pos += pkt_bytes_left;
+                pes->bytes_left -= pkt_bytes_left;
+                add_to_buffer( &stream->tb );
+                increase_pcr( w, 1 );
+            }
+            else
+            {
+                /* stuff the last packet with an oversized adaptation field */
+                stuffing = pkt_bytes_left - pes->bytes_left;
+                flags = 1;
+
+                /* special case where the adaptation_field_length byte is the stuffing */
+                // FIXME except for cablelabs legacy
+                if( stuffing == 1 && !adapt_field_len )
+                {
+                    stuffing = flags = 0;
+                    adapt_field_len = 1;
+                }
+                else if( stuffing && !adapt_field_len )
+                {
+                    adapt_field_len = 2;
+                    stuffing -= 2;  /* 2 bytes for adaptation field in this case. NOTE: needs fixing if more private data added */
+                }
+
+                write_packet_header( w, pes_start, stream->pid, PAYLOAD_ONLY + ((!!adapt_field_len)<<1), &stream->cc );
+                if( adapt_field_len )
+                    write_adaptation_field( w, s, program, pes, write_pcr, flags, stuffing );
+
+                write_bytes(s, pes->cur_pos, pes->bytes_left );
+                pes->bytes_left = 0;
+                add_to_buffer( &stream->tb );
+                increase_pcr( w, 1 );
+            }
+
+            if( pes->bytes_left <= pes->handover_bytes_left )
+            {
+                /* When a video frame arrives and the associated audio packets are not ready to be written send frames to next context
+                 * This happens at the beginning of a transport stream as the video buffers  */
+                if( num_frames && (pes->stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || pes->stream->stream_format == LIBMPEGTS_VIDEO_AVC) )
+                {
+                    for( int i = 0; i < cur_num_pes; i++ )
+                    {
+                        if( cur_pes[i]->stream->stream_format > 31 )
+                        {
+                            stream = cur_pes[i]->stream;
+                            pes_pcr = (double)(cur_pes[i]->dts - stream->max_frame_size)/90000; /* earliest that a frame can arrive */
+                            if( pes_pcr > program->cur_pcr )
+                            {
+                                w->buffered_frames = realloc( w->buffered_frames, (w->num_buffered_frames+1) * sizeof(w->buffered_frames) );
+                                w->buffered_frames[w->num_buffered_frames++] = cur_pes[i];
+                                memmove( &cur_pes[i], &cur_pes[i+1], (cur_num_pes-1-i) * sizeof(cur_pes) );
+                                cur_num_pes--;
+                                i--; /* check current position again */
+                            }
+                        }
+                    }
+                }
+
+                /* eject the current pes from the queue */
+                for( int i = 0; i < cur_num_pes; i++ )
+                {
+                    if( cur_pes[i] == pes )
+                    {
+                        cur_num_pes--;
+                        memmove( &cur_pes[i], &cur_pes[i+1], (cur_num_pes-i) * sizeof(cur_pes) );
+                        break;
+                    }
+                }
+
+                if( pes->handover_bytes_left )
+                    pes->handover_bytes_left = 0;
+                else
+                {
+                    free( pes->data );
+                    free( pes );
+                }
+            }
+
+            if( check_pcr( w, program ) )
+                write_pcr_empty( w, program );
+            retransmit_psi_and_si( w, program, 0 );
+        }
+        else /* no packets can be written */
+        {
+            if( check_pcr( w, program ) )
+                write_pcr_empty( w, program );
+            else if( w->cbr )
+                write_null_packet( w );
+            else
+                increase_pcr( w, 1 ); /* write imaginary packet in vbr mode */
+        }
+    }
+
+    bs_flush( s );
+
+    free( cur_pes );
+
+    *out = w->out.p_bitstream;
+    *len = bs_pos( s ) >> 3;
+
+    // TODO if it's the final packet write blu-ray overflows
+    // TODO count bits here
+
+    return 0;
+}
+
+int ts_delete_stream( ts_writer_t *w, int pid )
+{
+    return 0;
+}
+
+int ts_close_writer( ts_writer_t *w )
+{
+    for( int i = 0; i < w->num_programs; i++ )
+    {
+        for( int j = 0; j < w->programs[i]->num_streams; j++ )
+        {
+            // TODO free other stuff
+            free( w->programs[i]->streams[j] );
+            if( w->programs[i]->streams[j]->mpegvideo_ctx )
+                free( w->programs[i]->streams[j]->mpegvideo_ctx );
+            if( w->programs[i]->streams[j]->lpcm_ctx )
+                free( w->programs[i]->streams[j]->lpcm_ctx );
+        }
+    }
+
+    if( w->out.p_bitstream )
+        free( w->out.p_bitstream );
+    free( w );
+
+    return 0;
+}
+
+void write_packet_header( ts_writer_t *w, int start, int pid, int adapt_field, int *cc )
+{
+    bs_t *s = &w->out.bs;
+
+    if( w->ts_type == TS_TYPE_BLU_RAY )
+    {
+        // tp_extra_header
+        bs_write( s, 2, 0 ); // copy_permission_indicator
+        bs_write( s, 30, 0 ); // arrival_time_stamp FIXME
+    }
+
+    bs_write( s, 8, 0x47 ); // sync byte
+    bs_write1( s, 0 );      // transport_error_indicator
+    bs_write1( s, start );  // payload_unit_start_indicator
+    bs_write1( s, 0 );      // transport_priority (not usually used)
+    bs_write( s, 5, (pid >> 8) & 0x1f ); // PID
+    bs_write( s, 8, pid & 0xff );        // PID
+    bs_write( s, 2, 0 );    // transport_scrambling_control
+    bs_write( s, 2, adapt_field & 0x03 );
+
+    if( adapt_field == ADAPT_FIELD_ONLY )
+        bs_write( s, 4, (*cc - 1) & 0xf ); // continuity counter
+    else
+        bs_write( s, 4, (*cc)++ & 0xf );   // continuity counter
+}
+
+int write_padding( bs_t *s, int start )
 {
     bs_flush( s );
     uint8_t *p_start = s->p_start;
@@ -318,14 +912,14 @@ static void write_avc_descriptor( bs_t *s, ts_int_stream_t *stream )
 
     bs_write( s, 8, stream->mpegvideo_ctx->profile & 0xff ); // profile_idc
 
-    bs_write1( s, stream->mpegvideo_ctx->profile == H264_BASELINE ); // constraint_set0_flag
-    bs_write1( s, stream->mpegvideo_ctx->profile <= H264_MAIN );     // constraint_set1_flag
+    bs_write1( s, stream->mpegvideo_ctx->profile == AVC_BASELINE ); // constraint_set0_flag
+    bs_write1( s, stream->mpegvideo_ctx->profile <= AVC_MAIN );     // constraint_set1_flag
     bs_write1( s, 0 );                                               // constraint_set2_flag
-        if( stream->mpegvideo_ctx->level == 9 && stream->mpegvideo_ctx->profile <= H264_MAIN ) // level 1b
+        if( stream->mpegvideo_ctx->level == 9 && stream->mpegvideo_ctx->profile <= AVC_MAIN ) // level 1b
             bs_write1( s, 1 );                                           // constraint_set3_flag
-        else if( stream->mpegvideo_ctx->profile == H264_HIGH_10_INTRA   ||
-                 stream->mpegvideo_ctx->profile == H264_CAVLC_444_INTRA ||
-                 stream->mpegvideo_ctx->profile == H264_HIGH_444_INTRA )
+        else if( stream->mpegvideo_ctx->profile == AVC_HIGH_10_INTRA   ||
+                 stream->mpegvideo_ctx->profile == AVC_CAVLC_444_INTRA ||
+                 stream->mpegvideo_ctx->profile == AVC_HIGH_444_INTRA )
             bs_write1( s, 1 );                                           // constraint_set3_flag
         else
             bs_write1( s, 0 );                                           // constraint_set3_flag
@@ -381,8 +975,37 @@ static void write_iso_lang_descriptor( bs_t *s, ts_int_stream_t *stream )
     for( int i = 0; i < 3; i++ )
         bs_write( s, 8, stream->lang_code[i] );
 
-    bs_write(s, 8, 0 ); // audio_type
+    bs_write(s, 8, stream->audio_type ); // audio_type
 }
+
+/**** PCR functions ****/
+static int check_pcr( ts_writer_t *w, ts_int_program_t *program )
+{
+    // if the next packet written goes over the max pcr retransmit boundary, write the pcr in the next packet
+    double next_pkt_pcr = program->cur_pcr + (TS_PACKET_SIZE + 7) * 8.0 / w->ts_muxrate - (double)program->last_pcr / TS_CLOCK;
+    if( next_pkt_pcr >= (double)w->pcr_period / 1000 )
+    {
+        return 1;
+    }
+
+    return 0;
+}
+
+void increase_pcr( ts_writer_t *w, int num_packets )
+{
+    // TODO do this for all programs
+    ts_int_program_t *program = w->programs[0];
+    double next_pcr = program->cur_pcr + (8.0 * num_packets * TS_PACKET_SIZE / w->ts_muxrate);
+
+    /* buffer drip (TODO: all buffers) */
+    for( int i = 0; i < program->num_streams; i++ )
+    {
+        drip_buffer( program, program->streams[i], &program->streams[i]->tb, next_pcr );
+    }
+
+    program->cur_pcr += 8.0 * num_packets * TS_PACKET_SIZE / w->ts_muxrate;
+}
+
 /**** Buffer management ****/
 static void add_to_buffer( buffer_t *buffer )
 {
@@ -405,6 +1028,19 @@ static void drip_buffer( ts_int_program_t *program, ts_int_stream_t *stream, buf
 
     buffer->cur_buf = MAX( buffer->cur_buf, 0 );
 }
+
+static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, int first )
+{
+    // TODO make this work with multiple programs
+    if( (uint64_t)(program->cur_pcr * TS_CLOCK) - w->last_pat >= w->pat_period * 27000LL || first )
+    {
+        w->last_pat = (uint64_t)(program->cur_pcr * 27000000LL);
+        write_pat( w );
+        write_pmt( w, program );
+    }
+
+}
+
 static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *program, ts_int_pes_t *pes,
                                    int write_pcr, int flags, int stuffing )
 {
@@ -422,7 +1058,7 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
         priority = pes->priority;
         pes->random_access = 0; /* don't write this flag again */
 
-        if( stream->dvb_au && ( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_H264 ) )
+        if( stream->dvb_au && ( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_AVC ) )
             private_data_flag = write_dvb_au = 1;
     }
 
@@ -543,6 +1179,207 @@ static void write_pat( ts_writer_t *w )
     write_padding( s, start - 40 );
     increase_pcr( w, 1 );
 }
+
+static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
+{
+    int start;
+    bs_t *s = &w->out.bs;
+
+    uint8_t temp[1024], temp2[512];
+    bs_t q, r;
+
+    write_packet_header( w, 1, program->pmt.pid, PAYLOAD_ONLY, &program->pmt.cc );
+
+    bs_write( s, 8, 0 );       // pointer field
+
+    start = bs_pos( s );
+    bs_write( s, 8, PMT_TID ); // table_id = program_map_section
+    bs_write1( s, 1 );         // section_syntax_indicator
+    bs_write1( s, 0 );         // '0'
+    bs_write( s, 2, 0x3 );     // reserved
+
+    bs_init( &q, temp, 512 );
+
+    bs_write( &q, 16, program->program_num & 0xffff ); // program_number
+    bs_write( &q, 2, 0x3 ); // reserved
+    bs_write( &q, 5, 0 );    // version_number
+    bs_write1( &q, 1 );      // current_next_indicator
+    bs_write( &q, 8, 0 );    // section_number
+    bs_write( &q, 8, 0 );    // last_section_number
+    bs_write( &q, 3, 0x7 );  // reserved
+
+    bs_write( &q, 13, program->pcr_stream[0].pid & 0x1fff ); // PCR PID
+    bs_write( &q, 4, 0xf );  // reserved
+
+    /* setup temporary bitstream context */
+    bs_init( &r, temp2, 256 );
+
+    if( w->ts_type == TS_TYPE_BLU_RAY )
+        write_registration_descriptor( &r, REGISTRATION_DESCRIPTOR_TAG, 4, "HDMV" );
+    else if( w->ts_type == TS_TYPE_ATSC )
+    {
+        write_registration_descriptor( &r, REGISTRATION_DESCRIPTOR_TAG, 4, "GA94" );
+        write_smoothing_buffer_descriptor( &r, program );
+    }
+
+    if( program->cablelabs_is_3d )
+        write_cablelabs_3d_descriptor( &r );
+
+    /* Optional descriptor(s) here */
+
+    bs_flush( &r );
+    bs_write( &q, 12, bs_pos( &r ) >> 3 );   // program_info_length
+    write_bytes( &q, temp2, bs_pos( &r ) >> 3 );
+
+    for( int i = 0; i < program->num_streams; i++ )
+    {
+         ts_int_stream_t *stream = program->streams[i];
+
+         bs_write( &q, 8, stream->stream_type & 0xff ); // stream_type
+         bs_write( &q, 3, 0x7 );  // reserved
+         bs_write( &q, 13, stream->pid & 0x1fff ); // elementary_PID
+         bs_write( &q, 4, 0xf );  // reserved
+
+         /* setup temporary bitstream context */
+         bs_init( &r, temp2, 256 );
+
+         write_data_stream_alignment_descriptor( &r );
+
+         if( w->ts_type == TS_TYPE_CABLELABS )
+             write_scte_adaptation_descriptor( &r );
+
+         if( stream->write_lang_code )
+             write_iso_lang_descriptor( &r, stream );
+
+         if( stream->has_stream_identifier )
+             write_stream_identifier_descriptor( &r, stream->stream_identifier );
+
+         if( stream->dvb_au )
+             write_adaptation_field_data_descriptor( &r, AU_INFORMATION_DATA_FIELD );
+
+         if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 )
+         {
+             if( w->ts_type == TS_TYPE_BLU_RAY )
+                 write_hdmv_video_registration_descriptor( &r, stream );
+         }
+         else if( stream->stream_format == LIBMPEGTS_VIDEO_AVC )
+         {
+             write_avc_descriptor( &r, stream );
+             if( w->ts_type == TS_TYPE_BLU_RAY )
+                 write_hdmv_video_registration_descriptor( &r, stream );
+         }
+         else if( stream->stream_format == LIBMPEGTS_AUDIO_MPEG1 ||
+                  stream->stream_format == LIBMPEGTS_AUDIO_MPEG2 )
+         {
+             // TODO
+         }
+         else if( stream->stream_format == LIBMPEGTS_AUDIO_ADTS )
+         {
+             // TODO
+         }
+         else if( stream->stream_format == LIBMPEGTS_AUDIO_LATM )
+         {
+             if( w->ts_type == TS_TYPE_DVB )
+                 write_aac_descriptor( &r, stream );
+         }
+         else if( stream->stream_format == LIBMPEGTS_AUDIO_AC3 )
+         {
+             write_registration_descriptor( &r, REGISTRATION_DESCRIPTOR_TAG, 4, "AC-3" );
+             write_ac3_descriptor( w, &r, 0 );
+         }
+         else if( stream->stream_format == LIBMPEGTS_AUDIO_EAC3 ||
+                  stream->stream_format == LIBMPEGTS_AUDIO_EAC3_SECONDARY )
+         {
+             write_registration_descriptor( &r, REGISTRATION_DESCRIPTOR_TAG, 4, "AC-3" );
+             write_ac3_descriptor( w, &r, 1 );
+         }
+         else if( stream->stream_format == LIBMPEGTS_AUDIO_DTS )
+         {
+             // TODO
+         }
+         else if( stream->stream_format == LIBMPEGTS_AUDIO_302M )
+             write_registration_descriptor( &r, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "BSSD" );
+         else if( stream->stream_format == LIBMPEGTS_ANCILLARY_RDD11 )
+             write_registration_descriptor( &r, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "LU-A" );
+         else if( stream->stream_format == LIBMPEGTS_ANCILLARY_2038 )
+         {
+             write_registration_descriptor( &r, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "VANC" );
+             write_anc_data_descriptor( &r );
+         }
+
+         // TODO other stream_type descriptors
+
+         /* Optional descriptor(s) here */
+
+         bs_flush( &r );
+         bs_write( &q, 12, bs_pos( &r ) >> 3 );   // ES_info_length
+         write_bytes( &q, temp2, bs_pos( &r ) >> 3 );
+    }
+
+    // FIXME this will fail with a lot of streams
+
+    /* section length includes crc */
+    bs_flush( &q );
+    int section_length = (bs_pos( &q ) >> 3) + 4;
+    bs_write( s, 12, section_length & 0x3ff );
+    write_bytes( s, temp, bs_pos( &q ) >> 3 );
+
+    bs_flush( s );
+    write_crc( s, start );
+
+    /* -40 to include header and pointer field */
+    write_padding( s, start - 40 );
+    increase_pcr( w, 1 );
+}
+
+/* DVB / Blu-Ray Service Information */
+static void write_sit( ts_writer_t *w )
+{
+    int start;
+    int len = 0; // FIXME
+    bs_t *s = &w->out.bs;
+
+    write_packet_header( w, 1, SIT_PID, PAYLOAD_ONLY, &w->sit->cc );
+    bs_write( s, 8, 0 );       // pointer field
+
+    start = bs_pos( s );
+    bs_write( s, 8, SIT_TID ); // table_id
+    bs_write1( s, 1 );         // section_syntax_indicator
+    bs_write1( s, 1 );         // DVB_reserved_future_use
+    bs_write( s, 2, 0x03 );    // ISO_reserved
+
+    // FIXME do length properly
+
+    bs_write( s, 12, 11 + len ); // section_length
+    bs_write( s, 16, 0xffff ); // DVB_reserved_future_use
+    bs_write( s, 2, 0x03 );    // ISO_reserved
+    bs_write( s, 5, w->sit->version_number ); // version_number
+    bs_write1( s, 1 );         // current_next_indicator
+    bs_write( s, 8, 0 );       // section_number
+    bs_write( s, 8, 0 );       // last_section_number
+    bs_write( s, 4, 0x0f );    // DVB_reserved_for_future_use
+
+    bs_write( s, 12, len );    // transmission_info_loop_length
+
+    if( w->ts_type == TS_TYPE_BLU_RAY )
+        write_partial_ts_descriptor( w, s );
+
+    for( int i = 0; i < w->num_programs; i++ )
+    {
+        bs_write( s, 16, w->programs[i]->program_num & 0xffff ); // service_id (equivalent to program_number)
+        bs_write1( s, 1 );      // DVB_reserved_future_use
+        bs_write( s, 3, 0x07 ); // running_status
+        bs_write( s, 12, 0 );   // service_loop_length
+    }
+
+    bs_flush( s );
+    write_crc( s, start );
+
+    // -40 to include header and pointer field
+    write_padding( s, start - 40 );
+    increase_pcr( w, 1 );
+}
+
 static void write_timestamp( bs_t *s, uint64_t timestamp )
 {
     bs_write( s, 3, (timestamp >> 30) & 0x07 ); // timestamp [32..30]
@@ -626,7 +1463,7 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
     bs_flush( &q );
     total_size = in_frame->size + (bs_pos( &q ) >> 3);
 
-    if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_H264 )
+    if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_AVC )
         bs_write( &s, 16, 0 );          // PES_packet_length
     else
         bs_write( &s, 16, total_size ); // PES_packet_length
