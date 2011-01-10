@@ -4,15 +4,16 @@ include config.mak
 
 all: default
 
-SRCS = crc/crc.c atsc/atsc.c cablelabs/cablelabs.c dvb/dvb.c hdmv/hdmv.c libmpegts.c
+SRCS = crc/crc.c atsc/atsc.c cablelabs/cablelabs.c dvb/dvb.c hdmv/hdmv.c smpte/smpte.c libmpegts.c
 
 SRCSO =
 
 CONFIG := $(shell cat config.h)
 
 OBJS = $(SRCS:%.c=%.o)
+OBJCLI = $(SRCCLI:%.c=%.o)
 OBJSO = $(SRCSO:%.c=%.o)
-DEP  = depend
+DEP  = depend libmpegts.a
 
 .PHONY: all default clean distclean install uninstall dox test testclean
 
@@ -27,7 +28,7 @@ $(SONAME): .depend $(OBJS) $(OBJSO)
 
 .depend: config.mak
 	@rm -f .depend
-	@$(foreach SRC, $(SRCS) $(SRCCLI) $(SRCSO), $(CC) $(CFLAGS) $(SRC) -MT $(SRC:%.c=%.o) -MM -g0 1>> .depend;)
+	@$(foreach SRC, $(SRCS) $(SRCSO), $(CC) $(CFLAGS) $(SRC) -MT $(SRC:%.c=%.o) -MM -g0 1>> .depend;)
 
 config.mak:
 	./configure
@@ -37,10 +38,10 @@ ifneq ($(wildcard .depend),)
 include .depend
 endif
 
-SRC2 = $(SRCS) $(SRCCLI)
+SRC2 = $(SRCS)
 
 clean:
-	rm -f $(OBJS) $(OBJSO) $(SONAME) *.a .depend TAGS
+	rm -f $(OBJS) $(OBJSO) $(OBJCLI) $(SONAME) *.a .depend TAGS
 	rm -f $(SRC2:%.c=%.gcda) $(SRC2:%.c=%.gcno)
 	- sed -e 's/ *-fprofile-\(generate\|use\)//g' config.mak > config.mak2 && mv config.mak2 config.mak
 
