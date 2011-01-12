@@ -106,7 +106,7 @@
 #define LIBMPEGTS_DVB_AU_60_FPS        8 /* Not allowed in Blu-Ray */
 
 /**** DVB AU_information ****/
-/* DVB-AU Pic-Struct */
+/* DVB-AU Pic-Struct MPEG-2 */
 #define LIBMPEGTS_DVB_AU_PIC_STRUCT_NONE      1
 #define LIBMPEGTS_DVB_AU_PIC_STRUCT_TOP_FIELD 2
 #define LIBMPEGTS_DVB_AU_PIC_STRUCT_BOT_FIELD 3

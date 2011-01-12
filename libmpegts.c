@@ -667,7 +667,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
             /* DVB AU_Information is large so consider this case */
             // FIXME consider cablelabs legacy
-            if( !adapt_field_len && ( pes->random_access || ( pes_start && stream->dvb_au ) ) )
+            if( !adapt_field_len && pes_start && stream->dvb_au )
             {
                 adapt_field_len = write_adaptation_field( w, &q, program, pes, 0, 1, 0 );
                 pkt_bytes_left -= adapt_field_len;
@@ -1046,12 +1046,12 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
 {
     int private_data_flag, write_dvb_au, random_access, priority;
     int start = bs_pos( s );
-    uint8_t temp[256], temp2[128];
+    uint8_t temp[512], temp2[256];
     bs_t q, r;
 
     private_data_flag = write_dvb_au = random_access = priority = 0;
 
-    if( pes )
+    if( pes && (pes->data == pes->cur_pos) )
     {
         ts_int_stream_t *stream = pes->stream;
         random_access = pes->random_access;
@@ -1106,7 +1106,7 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
             write_dvb_au_information( &r, pes );
 
         bs_flush ( &r );
-        bs_write( s, 8, bs_pos( &r ) >> 3 ); // transport_private_data_length
+        bs_write( &q, 8, bs_pos( &r ) >> 3 ); // transport_private_data_length
         write_bytes( &q, temp2, bs_pos( &r ) >> 3 );
     }
 

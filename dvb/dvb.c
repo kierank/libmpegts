@@ -248,7 +248,10 @@ void write_dvb_au_information( bs_t *s, ts_int_pes_t *pes )
 
     bs_write( &q, 4, pes->frame_type );  // AU_coding_type_information
     bs_write( &q, 2, pes->ref_pic_idc ); // AU_ref_pic_idc
-    bs_write( &q, 2, pes->pic_struct );  // AU_pic_struct
+    if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 )
+        bs_write( &q, 2, pes->pic_struct );  // AU_pic_struct
+    else if( stream->stream_format == LIBMPEGTS_VIDEO_AVC )
+        bs_write( &q, 2, 0 ); // AU_coding_format
 
     bs_write1( &q, 1 ); // AU_PTS_present_flag
     bs_write1( &q, 1 ); // AU_profile_info_present_flag
@@ -266,7 +269,7 @@ void write_dvb_au_information( bs_t *s, ts_int_pes_t *pes )
     {
         bs_write1( &q, stream->mpegvideo_ctx->profile == AVC_BASELINE ); // constraint_set0_flag
         bs_write1( &q, stream->mpegvideo_ctx->profile <= AVC_MAIN );     // constraint_set1_flag
-        bs_write1( &q, 0 );                                               // constraint_set2_flag
+        bs_write1( &q, 0 );                                              // constraint_set2_flag
         if( stream->mpegvideo_ctx->level == 9 && stream->mpegvideo_ctx->profile <= AVC_MAIN ) // level 1b
             bs_write1( &q, 1 );                                           // constraint_set3_flag
         else if( stream->mpegvideo_ctx->profile == AVC_HIGH_10_INTRA   ||
