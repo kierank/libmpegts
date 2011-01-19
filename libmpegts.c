@@ -910,7 +910,7 @@ static void write_avc_descriptor( bs_t *s, ts_int_stream_t *stream )
     bs_write( s, 8, AVC_DESCRIPTOR_TAG ); // descriptor_tag
     bs_write( s, 8, 0x04 );               // descriptor_length
 
-    bs_write( s, 8, stream->mpegvideo_ctx->profile & 0xff ); // profile_idc
+    bs_write( s, 8, avc_profiles[stream->mpegvideo_ctx->profile] ); // profile_idc
 
     bs_write1( s, stream->mpegvideo_ctx->profile == AVC_BASELINE ); // constraint_set0_flag
     bs_write1( s, stream->mpegvideo_ctx->profile <= AVC_MAIN );     // constraint_set1_flag
@@ -1243,6 +1243,7 @@ static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
          /* setup temporary bitstream context */
          bs_init( &r, temp2, 256 );
 
+         // FIXME not in certain cases
          write_data_stream_alignment_descriptor( &r );
 
          if( w->ts_type == TS_TYPE_CABLELABS )

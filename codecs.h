@@ -70,6 +70,20 @@ const avc_level_t avc_levels[] =
     { 0 }
 };
 
+const uint8_t avc_profiles[] =
+{
+    [AVC_BASELINE] = 66,
+    [AVC_MAIN]     = 77,
+    [AVC_HIGH]     = 100,
+    [AVC_HIGH_10]  = 110,
+    [AVC_HIGH_422] = 122,
+    [AVC_HIGH_444_PRED]   = 244,
+    [AVC_HIGH_10_INTRA]   = 110,
+    [AVC_HIGH_422_INTRA]  = 122,
+    [AVC_HIGH_444_INTRA]  = 244,
+    [AVC_CAVLC_444_INTRA] = 44,
+};
+
 /* Audio */
 typedef struct
 {
