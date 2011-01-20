@@ -69,8 +69,8 @@ static void write_ac3_descriptor( ts_writer_t *w, bs_t *s, int e_ac3 );
 static int check_pcr( ts_writer_t *w, ts_int_program_t *program );
 static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, int first );
 static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *program, ts_int_pes_t *pes,
-                                   int write_pcr, int flags, int stuffing );
-static void write_pcr_empty( ts_writer_t *w, ts_int_program_t *program );
+                                   int write_pcr, int flags, int stuffing, int discontinuity );
+static void write_pcr_empty( ts_writer_t *w, ts_int_program_t *program, int first );
 
 /* Buffer management */
 static void add_to_buffer( buffer_t *buffer );
@@ -579,7 +579,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
     if( !w->first_input )
     {
-        write_pcr_empty( w, program );
+        write_pcr_empty( w, program, 1 );
         retransmit_psi_and_si( w, program, 1 );
         w->first_input = 1;
     }
@@ -652,24 +652,31 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
             bs_init( &q, temp, 128 );
 
-            if( check_pcr( w, program ) )
+            /* it is good practice to write a pcr at the beginning of a video payload */
+            if( program->pcr_stream == stream && pes_start )
+                write_pcr = 1;
+	    else if( check_pcr( w, program ) )
             {
                 if( program->pcr_stream == stream )
                 {
                     /* piggyback pcr on this stream */
                     write_pcr = 1;
-                    adapt_field_len = write_adaptation_field( w, &q, program, pes, write_pcr, 1, 0 );
-                    pkt_bytes_left -= adapt_field_len;
                 }
                 else
-                    write_pcr_empty( w, program );
+                    write_pcr_empty( w, program, 0 );
+            }
+
+            if( write_pcr )
+            {
+                adapt_field_len = write_adaptation_field( w, &q, program, pes, write_pcr, 1, 0, 0 );
+                pkt_bytes_left -= adapt_field_len;
             }
 
             /* DVB AU_Information is large so consider this case */
             // FIXME consider cablelabs legacy
             if( !adapt_field_len && pes_start && stream->dvb_au )
             {
-                adapt_field_len = write_adaptation_field( w, &q, program, pes, 0, 1, 0 );
+                adapt_field_len = write_adaptation_field( w, &q, program, pes, 0, 1, 0, 0 );
                 pkt_bytes_left -= adapt_field_len;
             }
 
@@ -677,7 +684,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             {
                 write_packet_header( w, pes_start, stream->pid, PAYLOAD_ONLY + ((!!adapt_field_len)<<1), &stream->cc );
                 if( adapt_field_len )
-                    write_adaptation_field( w, s, program, pes, write_pcr, 1, 0 );
+                    write_adaptation_field( w, s, program, pes, write_pcr, 1, 0, 0 );
 
                 write_bytes( s, pes->cur_pos, pkt_bytes_left );
                 pes->cur_pos += pkt_bytes_left;
@@ -706,7 +713,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
                 write_packet_header( w, pes_start, stream->pid, PAYLOAD_ONLY + ((!!adapt_field_len)<<1), &stream->cc );
                 if( adapt_field_len )
-                    write_adaptation_field( w, s, program, pes, write_pcr, flags, stuffing );
+                    write_adaptation_field( w, s, program, pes, write_pcr, flags, stuffing, 0 );
 
                 write_bytes(s, pes->cur_pos, pes->bytes_left );
                 pes->bytes_left = 0;
@@ -759,13 +766,13 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             }
 
             if( check_pcr( w, program ) )
-                write_pcr_empty( w, program );
+                write_pcr_empty( w, program, 0 );
             retransmit_psi_and_si( w, program, 0 );
         }
         else /* no packets can be written */
         {
             if( check_pcr( w, program ) )
-                write_pcr_empty( w, program );
+                write_pcr_empty( w, program, 0 );
             else if( w->cbr )
                 write_null_packet( w );
             else
@@ -1042,7 +1049,7 @@ static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, in
 }
 
 static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *program, ts_int_pes_t *pes,
-                                   int write_pcr, int flags, int stuffing )
+                                   int write_pcr, int flags, int stuffing, int discontinuity )
 {
     int private_data_flag, write_dvb_au, random_access, priority;
     int start = bs_pos( s );
@@ -1067,7 +1074,7 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
 
     if( flags )
     {
-        bs_write1( &q, 0 ); // discontinuity_indicator
+        bs_write1( &q, discontinuity ); // discontinuity_indicator
         bs_write1( &q, random_access ); // random_access_indicator
         bs_write1( &q, priority );  // elementary_stream_priority_indicator
         bs_write1( &q, write_pcr ); // PCR_flag
@@ -1120,13 +1127,14 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
     return (bs_pos( s ) - start) >> 3;
 }
 
-static void write_pcr_empty( ts_writer_t *w, ts_int_program_t *program )
+static void write_pcr_empty( ts_writer_t *w, ts_int_program_t *program, int first )
 {
     bs_t *s = &w->out.bs;
 
     write_packet_header( w, 0, program->pcr_stream->pid, ADAPT_FIELD_ONLY, &program->pcr_stream->cc );
     int stuffing = 184 - 6 - 2; /* pcr, flags and length */
-    write_adaptation_field( w, s, program, NULL, 1, 1, stuffing );
+    int discontinuity = first && w->ts_type == TS_TYPE_CABLELABS;
+    write_adaptation_field( w, s, program, NULL, 1, 1, stuffing, discontinuity );
 
     add_to_buffer( &program->pcr_stream->tb );
     increase_pcr( w, 1 );
@@ -1214,13 +1222,15 @@ static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
     /* setup temporary bitstream context */
     bs_init( &r, temp2, 256 );
 
-    if( w->ts_type == TS_TYPE_BLU_RAY )
-        write_registration_descriptor( &r, REGISTRATION_DESCRIPTOR_TAG, 4, "HDMV" );
-    else if( w->ts_type == TS_TYPE_ATSC )
+    if( w->ts_type == TS_TYPE_ATSC )
     {
         write_registration_descriptor( &r, REGISTRATION_DESCRIPTOR_TAG, 4, "GA94" );
         write_smoothing_buffer_descriptor( &r, program );
     }
+    else if( w->ts_type == TS_TYPE_CABLELABS )
+        write_registration_descriptor( &r, REGISTRATION_DESCRIPTOR_TAG, 4, "SCTE" );
+    else if( w->ts_type == TS_TYPE_BLU_RAY )
+        write_registration_descriptor( &r, REGISTRATION_DESCRIPTOR_TAG, 4, "HDMV" );
 
     if( program->cablelabs_is_3d )
         write_cablelabs_3d_descriptor( &r );
@@ -1246,17 +1256,19 @@ static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
          // FIXME not in certain cases
          write_data_stream_alignment_descriptor( &r );
 
-         if( w->ts_type == TS_TYPE_CABLELABS )
-             write_scte_adaptation_descriptor( &r );
+         if( stream->dvb_au )
+         {
+             if( w->ts_type == TS_TYPE_DVB )
+                 write_adaptation_field_data_descriptor( &r, AU_INFORMATION_DATA_FIELD );
+	     else if( w->ts_type == TS_TYPE_CABLELABS )
+                 write_scte_adaptation_descriptor( &r );
+         }
 
          if( stream->write_lang_code )
              write_iso_lang_descriptor( &r, stream );
 
          if( stream->has_stream_identifier )
              write_stream_identifier_descriptor( &r, stream->stream_identifier );
-
-         if( stream->dvb_au )
-             write_adaptation_field_data_descriptor( &r, AU_INFORMATION_DATA_FIELD );
 
          if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 )
          {
@@ -1287,6 +1299,8 @@ static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
          {
              write_registration_descriptor( &r, REGISTRATION_DESCRIPTOR_TAG, 4, "AC-3" );
              write_ac3_descriptor( w, &r, 0 );
+             //if( w->ts_type == TS_TYPE_ATSC || w->ts_type == TS_TYPE_CABLELABS )
+                 
          }
          else if( stream->stream_format == LIBMPEGTS_AUDIO_EAC3 ||
                   stream->stream_format == LIBMPEGTS_AUDIO_EAC3_SECONDARY )

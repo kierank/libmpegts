@@ -41,8 +41,8 @@
 
 #define LIBMPEGTS_AUDIO_MPEG1 32
 #define LIBMPEGTS_AUDIO_MPEG2 33
-#define LIBMPEGTS_AUDIO_ADTS  34 /* Effectively MPEG-2 AAC */
-#define LIBMPEGTS_AUDIO_LATM  35 /* Effectively MPEG-4 AAC */
+#define LIBMPEGTS_AUDIO_ADTS  34 /* Usually MPEG-2 AAC */
+#define LIBMPEGTS_AUDIO_LATM  35 /* Usually MPEG-4 AAC */
 #define LIBMPEGTS_AUDIO_AC3   36
 #define LIBMPEGTS_AUDIO_EAC3  37
 #define LIBMPEGTS_AUDIO_LPCM  38 /* Blu-Ray only */
@@ -133,11 +133,11 @@
  *           Blu-Ray HDMV (192 bytes) */
 enum ts_type_t
 {
-    TS_TYPE_DVB,
-    TS_TYPE_ATSC,
-    TS_TYPE_CABLELABS,
-    TS_TYPE_ISDB,
     TS_TYPE_GENERIC,
+    TS_TYPE_DVB,
+    TS_TYPE_CABLELABS,
+    TS_TYPE_ATSC,
+    TS_TYPE_ISDB,
     TS_TYPE_BLU_RAY,
 };
 
@@ -507,13 +507,23 @@ int ts_remove_sit( ts_writer_t *w );
 
 /**** ATSC specific information ****/
 
+typedef struct
+{
+    int sample_rate_code;
+    int bsid;
+    int bit_rate_mode;
+    int surround_mode;
+    int bsmod;
+    int num_channels;
+} ts_atsc_ac3_info;
+
 /* ATSC Setup/Update AC3 stream
  *
  * Note: ...
  *
  */
 
-int ts_setup_atsc_ac3_stream( ts_writer_t *w );
+int ts_setup_atsc_ac3_stream( ts_writer_t *w, ts_atsc_ac3_info *ac3_info );
 
 /**** Cablelabs specific information ****/
 
