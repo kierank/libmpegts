@@ -241,7 +241,7 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         else if( cur_stream->stream_format == LIBMPEGTS_AUDIO_AC3 || cur_stream->stream_format == LIBMPEGTS_AUDIO_EAC3 )
         {
             cur_stream->rx = MISC_AUDIO_RXN;
-            cur_stream->mb.buf_size = w->ts_type == TS_TYPE_ATSC ? AC3_BS_ATSC : AC3_BS_DVB;
+            cur_stream->mb.buf_size = w->ts_type == TS_TYPE_ATSC || w->ts_type == TS_TYPE_CABLELABS ? AC3_BS_ATSC : AC3_BS_DVB;
         }
 
         cur_program->streams[cur_program->num_streams] = cur_stream;
