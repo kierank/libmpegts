@@ -113,19 +113,19 @@ typedef struct
 
 typedef struct
 {
-    int sample_rate_code;
-    int bsid;
-    int bit_rate_mode;
-    int surround_mode;
-    int bsmod;
-    int num_channels;
-} atsc_ac3_ctx_t;
-
-typedef struct
-{
     int frame_rate;
     int aspect_ratio;
 } hdmv_video_stream_ctx_t;
+
+typedef struct
+{
+    int sample_rate_code;
+    int bsid;
+    int bit_rate_code;
+    int surround_mode;
+    int bsmod;
+    int num_channels;
+} ts_atsc_ac3_info;
 
 /* Blu-Ray DTCP */
 typedef struct
@@ -163,7 +163,13 @@ typedef struct
     /* Stream contexts */
     mpegvideo_stream_ctx_t  *mpegvideo_ctx;
     lpcm_stream_ctx_t       *lpcm_ctx;
-    atsc_ac3_ctx_t          *atsc_ac3_ctx;
+    ts_atsc_ac3_info        *atsc_ac3_ctx;
+    
+    int                     num_dvb_sub;
+    ts_dvb_sub_t            *dvb_sub_ctx;
+
+    int                     num_dvb_ttx;
+    ts_dvb_ttx_t            *dvb_ttx_ctx;
 
     int num_channels;
     int max_frame_size;
@@ -180,6 +186,8 @@ typedef struct
     char lang_code[4];
     int audio_type;
 
+    /* AAC */
+    int is_mpeg4;
     int aac_profile;
 
     /* ATSC */
@@ -201,7 +209,6 @@ typedef struct
     int hdmv_video_format;
     int hdmv_frame_rate;
     int hdmv_aspect_ratio;
-
 } ts_int_stream_t;
 
 typedef struct
