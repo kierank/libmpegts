@@ -22,10 +22,8 @@
 #define LIBMPEGTS_CABLELABS_H
 
 /* Descriptors */
-#define CABLELABS_3D_MPEG2_DESCRIPTOR_TAG    0xe8
-
-/* Private Data Bytes data_field_tags */
 #define SCTE_ADAPTATION_FIELD_DESCRIPTOR_TAG 0x97
+#define CABLELABS_3D_MPEG2_DESCRIPTOR_TAG    0xe8
 
 void write_cablelabs_3d_descriptor( bs_t *s );
 void write_scte_adaptation_descriptor( bs_t *s );

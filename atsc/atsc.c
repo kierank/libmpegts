@@ -22,12 +22,30 @@
 #include "atsc.h"
 
 /* Second Loop of PMT */
-void write_atsc_ac3_descriptor( bs_t *s )
+void parse_ac3_frame( ts_atsc_ac3_info *atsc_ac3_ctx, uint8_t *frame )
 {
-    bs_write( s, 8, ATSC_AC3_DESCRIPTOR_TAG );
+    atsc_ac3_ctx->sample_rate_code = frame[4] >> 6;
+    atsc_ac3_ctx->bsid = frame[5] >> 3;
+    atsc_ac3_ctx->bit_rate_code = (frame[4] & 0x3f) >> 1;
+    atsc_ac3_ctx->surround_mode = (frame[6] & 1) << 1 | (frame[7] >> 7);
+    atsc_ac3_ctx->bsmod = frame[5] & 0x7;
+    atsc_ac3_ctx->num_channels = frame[6] >> 5;
 }
 
-/* EIT */
+void write_atsc_ac3_descriptor( bs_t *s, ts_atsc_ac3_info *atsc_ac3_ctx )
+{
+    bs_write( s, 8, ATSC_AC3_DESCRIPTOR_TAG ); // descriptor_tag
+    bs_write( s, 8, 3 ); // descriptor_length
+    bs_write( s, 3, atsc_ac3_ctx->sample_rate_code ); // sample_rate_code
+    bs_write( s, 5, atsc_ac3_ctx->bsid ); // bsid
+    bs_write( s, 6, atsc_ac3_ctx->bit_rate_code ); // bit_rate_code
+    bs_write( s, 2, atsc_ac3_ctx->surround_mode ); // surround_mode
+    bs_write( s, 3, atsc_ac3_ctx->bsmod ); // bsmod
+    bs_write( s, 4, atsc_ac3_ctx->num_channels ); // num_channels
+    bs_write1( s, 1 );   // full_svc
+}
+
+/* Also in EIT */
 // FIXME fill in the blanks
 void write_caption_service_descriptor( bs_t *s )
 {

@@ -30,7 +30,8 @@
 #define ATSC_CAPTION_SERVICE_DESCRIPTOR_TAG  0x86
 #define ATSC_EXTENDED_CHANNEL_NAME_DESCRIPTOR_TAG 0xa0
 
-void write_atsc_ac3_descriptor( bs_t *s );
+void parse_ac3_frame( ts_atsc_ac3_info *atsc_ac3_ctx, uint8_t *frame );
+void write_atsc_ac3_descriptor( bs_t *s, ts_atsc_ac3_info *atsc_ac3_ctx );
 void write_caption_service_descriptor( bs_t *s );
 
 #endif
