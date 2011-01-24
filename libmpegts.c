@@ -52,7 +52,7 @@ static int steam_type_table[26][2] =
     { LIBMPEGTS_SUB_INTERACTIVE_GRAPHICS,  SUB_INTERACTIVE_GRAPHICS },
     { LIBMPEGTS_SUB_TEXT,    SUB_TEXT },
     { LIBMPEGTS_AUDIO_302M,  PRIVATE_DATA },
-    { LIBMPEGTS_SUB_DVB,     PRIVATE_DATA },
+    { LIBMPEGTS_DVB_SUB,     PRIVATE_DATA },
     { LIBMPEGTS_DVB_TELETEXT,    PRIVATE_DATA },
     { LIBMPEGTS_ANCILLARY_RDD11, PRIVATE_DATA },
     { LIBMPEGTS_ANCILLARY_2038,  PRIVATE_DATA },
@@ -61,7 +61,7 @@ static int steam_type_table[26][2] =
 
 /* Descriptors */
 static void write_smoothing_buffer_descriptor( bs_t *s, ts_int_program_t *program );
-static void write_video_stream_descriptor( bs_t *s, ts_int_stream_t *stream );
+//static void write_video_stream_descriptor( bs_t *s, ts_int_stream_t *stream );
 static void write_avc_descriptor( bs_t *s, ts_int_stream_t *stream );
 static void write_data_stream_alignment_descriptor( bs_t *s );
 static void write_ac3_descriptor( ts_writer_t *w, bs_t *s, int e_ac3 );
@@ -74,7 +74,7 @@ static void write_pcr_empty( ts_writer_t *w, ts_int_program_t *program, int firs
 
 /* Buffer management */
 static void add_to_buffer( buffer_t *buffer );
-static void drip_buffer( ts_int_program_t *program, ts_int_stream_t *stream, buffer_t *buffer, double next_pcr );
+static void drip_buffer( ts_int_program_t *program, int rx, buffer_t *buffer, double next_pcr );
 
 /* Tables */
 static void write_pat( ts_writer_t *w );
@@ -228,7 +228,6 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         cur_stream->hdmv_aspect_ratio = stream_in->hdmv_aspect_ratio;
         cur_stream->hdmv_video_format = stream_in->hdmv_video_format;
 
-        // TODO Teletext is an exception
         cur_stream->tb.buf_size = TB_SIZE;
 
         /* setup T-STD buffers when audio buffers sizes are independent of number of channels */
@@ -321,13 +320,12 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
         }
 
         for( int i = 0; mpeg2_levels[i].level != 0; i++ )
-        {
             if( level == mpeg2_levels[i].level && profile == mpeg2_levels[i].profile )
             {
                 level_idx = i;
                 break;
             }
-        }
+
         if( level_idx == -1 )
         {
             fprintf( stderr, "Invalid MPEG-2 Level/Profile combination.\n" );
@@ -337,13 +335,12 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
     else if( stream->stream_format == LIBMPEGTS_VIDEO_AVC )
     {
         for( int i = 0; avc_levels[i].level_idc != 0; i++ )
-        {
             if( level == avc_levels[i].level_idc )
             {
                 level_idx = i;
                 break;
             }
-        }
+
         if( level_idx == -1 )
         {
             fprintf( stderr, "Invalid AVC Level\n" );
@@ -432,6 +429,7 @@ int ts_setup_mpeg4_aac_stream( ts_writer_t *w, int pid, int profile_and_level, i
     }
 
     stream->aac_profile = profile_and_level;
+    stream->is_mpeg4    = 1;
 
     for( int i = 0; aac_buffers[i].max_channels != 0; i++ )
     {
@@ -439,7 +437,7 @@ int ts_setup_mpeg4_aac_stream( ts_writer_t *w, int pid, int profile_and_level, i
         {
             stream->rx = aac_buffers[i].rxn;
             stream->mb.buf_size = aac_buffers[i].bsn;  
-        }	
+        }
     }
 
     return 0;
@@ -471,10 +469,13 @@ int ts_setup_302m_stream( ts_writer_t *w, int pid, int bit_depth, int num_channe
         return -1;
     }
 
-    stream->lpcm_ctx = calloc( 1, sizeof(stream->lpcm_ctx) );
+    if( stream->lpcm_ctx )
+        free( stream->lpcm_ctx );
+ 
+    stream->lpcm_ctx = calloc( 1, sizeof(lpcm_stream_ctx_t) );
     if( !stream->lpcm_ctx )
         return -1;
-
+ 
     stream->lpcm_ctx->bits_per_sample = bit_depth;
     stream->lpcm_ctx->num_channels = num_channels;
 
@@ -482,6 +483,93 @@ int ts_setup_302m_stream( ts_writer_t *w, int pid, int bit_depth, int num_channe
 
     /* 302M frame size is bit_depth / 4 + 1 */
     stream->rx = 1.2 * ((bit_depth >> 2) + 1) * SMPTE_302M_AUDIO_SR * 8;
+
+    return 0;
+}
+
+int setup_dvb_subtitles( ts_writer_t *w, int pid, int has_dds, int num_subtitles, ts_dvb_sub_t *subtitles )
+{
+    if( w->ts_type == TS_TYPE_BLU_RAY )
+    {
+        fprintf( stderr, "DVB Subtitles not allowed in Blu-Ray\n" );
+        return -1;
+    }
+
+    ts_int_stream_t *stream = find_stream( w, pid );
+
+    if( !stream )
+    {
+        fprintf( stderr, "Invalid PID\n" );
+        return -1;
+    }
+
+    if( !subtitles || !num_subtitles )
+    {
+        fprintf( stderr, "Invalid Number of subtitles\n" );
+        return -1;
+    }
+
+    if( stream->dvb_sub_ctx )
+        free( stream->dvb_sub_ctx );
+
+    stream->dvb_sub_ctx = calloc( 1, num_subtitles * sizeof(ts_dvb_sub_t) );
+    if( !stream->dvb_sub_ctx )
+        return -1;
+
+    stream->num_dvb_sub = num_subtitles;
+    memcpy( stream->dvb_sub_ctx, subtitles, num_subtitles * sizeof(ts_dvb_sub_t) );
+
+    /* Display Definition Segment has different buffer sizes */
+    if( has_dds )
+    {
+        stream->tb.buf_size = DVB_SUB_DDS_TB_SIZE;
+        stream->rx = DVB_SUB_DDS_RXN;
+        stream->mb.buf_size = DVB_SUB_DDS_MB_SIZE;
+    }
+    else
+    {
+        stream->rx = DVB_SUB_RXN;
+        stream->mb.buf_size = DVB_SUB_MB_SIZE;
+    }
+
+    return 0;
+}
+
+int setup_dvb_teletext( ts_writer_t *w, int pid, int num_teletexts, ts_dvb_sub_t *teletexts )
+{
+    if( w->ts_type == TS_TYPE_BLU_RAY )
+    {
+        fprintf( stderr, "Teletext not allowed in Blu-Ray\n" );
+        return -1;
+    }
+
+    ts_int_stream_t *stream = find_stream( w, pid );
+
+    if( !stream )
+    {
+        fprintf( stderr, "Invalid PID\n" );
+        return -1;
+    }
+
+    if( !teletexts || !num_teletexts )
+    {
+        fprintf( stderr, "Invalid Number of teletexts\n" );
+        return -1;
+    }
+
+    if( stream->dvb_ttx_ctx )
+        free( stream->dvb_ttx_ctx );
+
+    stream->dvb_ttx_ctx = calloc( 1, num_teletexts * sizeof(ts_dvb_ttx_t) );
+    if( !stream->dvb_ttx_ctx )
+        return -1;
+
+    stream->num_dvb_sub = num_teletexts;
+    memcpy( stream->dvb_ttx_ctx, teletexts, num_teletexts * sizeof(ts_dvb_ttx_t) );
+
+    stream->tb.buf_size = TELETEXT_T_BS;
+    stream->rx = TELETEXT_RXN;
+    stream->mb.buf_size = TELETEXT_BTTX;
 
     return 0;
 }
@@ -556,6 +644,20 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         w->buffered_frames[i]->write_pulldown_info = frames[i].write_pulldown_info;
         w->buffered_frames[i]->pic_struct = frames[i].pic_struct;
 
+        /* probe the first normal looking ac3 frame if extra data is needed */
+        if( !stream->atsc_ac3_ctx && stream->stream_format == LIBMPEGTS_AUDIO_AC3 &&
+            ( w->ts_type == TS_TYPE_CABLELABS || w->ts_type == TS_TYPE_ATSC ) &&
+            frames[i].size > 100 &&  frames[i].data[0] == 0xb && frames[i].data[1] == 0x77 )
+        {
+            stream->atsc_ac3_ctx = calloc( 1, sizeof(ts_atsc_ac3_info) );
+            if( !stream->atsc_ac3_ctx  )
+            {
+               fprintf( stderr, "Malloc failed\n" );
+               return -1;
+            }
+            parse_ac3_frame( stream->atsc_ac3_ctx, frames[i].data );
+        }
+
         /* 512 bytes is more than enough for pes overhead */
         w->buffered_frames[i]->data = calloc( 1, frames[i].size + 512 );
         if( !w->buffered_frames[i]->data )
@@ -611,6 +713,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             bs_realign( s );
         }
 
+        /* check for any queued PMT packets */
+
         // FIXME at low bitrates this might need tweaking
 
         /* check all the non-video packets first */
@@ -647,15 +751,16 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             pes_pcr = (double)(pes->dts - stream->max_frame_size)/90000; /* earliest that a frame can arrive */
             pes_start = pes->data == pes->cur_pos; /* flag if packet contains pes header */
 
+            // FIXME complain less
             if( (double)pes->dts/90000 < program->cur_pcr )
                 fprintf( stderr, "\n dts is less than pcr pid: %i dts: %f pcr: %f \n", pes->stream->pid, (double)pes->dts/90000, program->cur_pcr);
 
-            bs_init( &q, temp, 128 );
+            bs_init( &q, temp, 256 );
 
             /* it is good practice to write a pcr at the beginning of a video payload */
             if( program->pcr_stream == stream && pes_start )
                 write_pcr = 1;
-	    else if( check_pcr( w, program ) )
+            else if( check_pcr( w, program ) )
             {
                 if( program->pcr_stream == stream )
                 {
@@ -723,7 +828,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
             if( pes->bytes_left <= pes->handover_bytes_left )
             {
-                /* When a video frame arrives and the associated audio packets are not ready to be written send frames to next context
+                /* When a video frame arrives and the associated non-video packets are not ready to be written send frames to next context
                  * This happens at the beginning of a transport stream as the video buffers  */
                 if( num_frames && (pes->stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || pes->stream->stream_format == LIBMPEGTS_VIDEO_AVC) )
                 {
@@ -810,6 +915,10 @@ int ts_close_writer( ts_writer_t *w )
                 free( w->programs[i]->streams[j]->mpegvideo_ctx );
             if( w->programs[i]->streams[j]->lpcm_ctx )
                 free( w->programs[i]->streams[j]->lpcm_ctx );
+            if( w->programs[i]->streams[j]->atsc_ac3_ctx )
+                free( w->programs[i]->streams[j]->atsc_ac3_ctx );
+            if( w->programs[i]->streams[j]->dvb_sub_ctx )
+                free( w->programs[i]->streams[j]->dvb_sub_ctx );
         }
     }
 
@@ -896,6 +1005,7 @@ static void write_smoothing_buffer_descriptor( bs_t *s, ts_int_program_t *progra
 }
 
 /* Second loop of PMT Descriptors */
+#if 0
 static void write_video_stream_descriptor( bs_t *s, ts_int_stream_t *stream )
 {
     bs_write( s, 8, VIDEO_STREAM_DESCRIPTOR_TAG ); // descriptor_tag
@@ -911,7 +1021,7 @@ static void write_video_stream_descriptor( bs_t *s, ts_int_stream_t *stream )
     bs_write1( s, 0 );   // frame_rate_extension_flag FIXME
     bs_write( s, 5, 0x1f ); // reserved
 }
-
+#endif
 static void write_avc_descriptor( bs_t *s, ts_int_stream_t *stream )
 {
     bs_write( s, 8, AVC_DESCRIPTOR_TAG ); // descriptor_tag
@@ -921,15 +1031,15 @@ static void write_avc_descriptor( bs_t *s, ts_int_stream_t *stream )
 
     bs_write1( s, stream->mpegvideo_ctx->profile == AVC_BASELINE ); // constraint_set0_flag
     bs_write1( s, stream->mpegvideo_ctx->profile <= AVC_MAIN );     // constraint_set1_flag
-    bs_write1( s, 0 );                                               // constraint_set2_flag
+    bs_write1( s, 0 );                                              // constraint_set2_flag
         if( stream->mpegvideo_ctx->level == 9 && stream->mpegvideo_ctx->profile <= AVC_MAIN ) // level 1b
             bs_write1( s, 1 );                                           // constraint_set3_flag
         else if( stream->mpegvideo_ctx->profile == AVC_HIGH_10_INTRA   ||
                  stream->mpegvideo_ctx->profile == AVC_CAVLC_444_INTRA ||
                  stream->mpegvideo_ctx->profile == AVC_HIGH_444_INTRA )
-            bs_write1( s, 1 );                                           // constraint_set3_flag
+            bs_write1( s, 1 );                                       // constraint_set3_flag
         else
-            bs_write1( s, 0 );                                           // constraint_set3_flag
+            bs_write1( s, 0 );                                       // constraint_set3_flag
     bs_write1( s, 0 );                                               // constraint_set4_flag
     bs_write1( s, 0 );                                               // constraint_set5_flag
 
@@ -978,7 +1088,7 @@ static void write_ac3_descriptor( ts_writer_t *w, bs_t *s, int e_ac3 )
 static void write_iso_lang_descriptor( bs_t *s, ts_int_stream_t *stream )
 {
     bs_write( s, 8, ISO_693_LANGUAGE_DESCRIPTOR_TAG ); // descriptor_tag
-    bs_write( s, 8, 0x04 ); // descriptor_length
+    bs_write( s, 8, 0x4 ); // descriptor_length
     for( int i = 0; i < 3; i++ )
         bs_write( s, 8, stream->lang_code[i] );
 
@@ -1005,9 +1115,10 @@ void increase_pcr( ts_writer_t *w, int num_packets )
     double next_pcr = program->cur_pcr + (8.0 * num_packets * TS_PACKET_SIZE / w->ts_muxrate);
 
     /* buffer drip (TODO: all buffers) */
+    drip_buffer( program, w->rx_sys, &w->tb, next_pcr );
     for( int i = 0; i < program->num_streams; i++ )
     {
-        drip_buffer( program, program->streams[i], &program->streams[i]->tb, next_pcr );
+        drip_buffer( program, program->streams[i]->rx, &program->streams[i]->tb, next_pcr );
     }
 
     program->cur_pcr += 8.0 * num_packets * TS_PACKET_SIZE / w->ts_muxrate;
@@ -1019,7 +1130,7 @@ static void add_to_buffer( buffer_t *buffer )
     buffer->cur_buf += TS_PACKET_SIZE * 8;
 }
 
-static void drip_buffer( ts_int_program_t *program, ts_int_stream_t *stream, buffer_t *buffer, double next_pcr )
+static void drip_buffer( ts_int_program_t *program, int rx, buffer_t *buffer, double next_pcr )
 {
     if( buffer->last_byte_removal_time == 0.0 )
     {
@@ -1027,10 +1138,10 @@ static void drip_buffer( ts_int_program_t *program, ts_int_stream_t *stream, buf
         buffer->cur_buf -= 8;
     }
 
-    while( buffer->last_byte_removal_time + (8.0 / stream->rx) < next_pcr )
+    while( buffer->last_byte_removal_time + (8.0 / rx) < next_pcr )
     {
         buffer->cur_buf -= 8;
-        buffer->last_byte_removal_time += 8.0 / stream->rx;
+        buffer->last_byte_removal_time += 8.0 / rx;
     }
 
     buffer->cur_buf = MAX( buffer->cur_buf, 0 );
@@ -1185,6 +1296,7 @@ static void write_pat( ts_writer_t *w )
 
     // -40 to include header and pointer field
     write_padding( s, start - 40 );
+    // TODO buffer management
     increase_pcr( w, 1 );
 }
 
@@ -1193,8 +1305,9 @@ static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
     int start;
     bs_t *s = &w->out.bs;
 
-    uint8_t temp[1024], temp2[512];
+    uint8_t temp[4096], temp2[1024];
     bs_t q, r;
+    int section_length;
 
     write_packet_header( w, 1, program->pmt.pid, PAYLOAD_ONLY, &program->pmt.cc );
 
@@ -1206,7 +1319,7 @@ static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
     bs_write1( s, 0 );         // '0'
     bs_write( s, 2, 0x3 );     // reserved
 
-    bs_init( &q, temp, 512 );
+    bs_init( &q, temp, 4096 );
 
     bs_write( &q, 16, program->program_num & 0xffff ); // program_number
     bs_write( &q, 2, 0x3 ); // reserved
@@ -1220,7 +1333,7 @@ static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
     bs_write( &q, 4, 0xf );  // reserved
 
     /* setup temporary bitstream context */
-    bs_init( &r, temp2, 256 );
+    bs_init( &r, temp2, 1024 );
 
     if( w->ts_type == TS_TYPE_ATSC )
     {
@@ -1251,7 +1364,7 @@ static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
          bs_write( &q, 4, 0xf );  // reserved
 
          /* setup temporary bitstream context */
-         bs_init( &r, temp2, 256 );
+         bs_init( &r, temp2, 1024 );
 
          // FIXME not in certain cases
          write_data_stream_alignment_descriptor( &r );
@@ -1260,7 +1373,7 @@ static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
          {
              if( w->ts_type == TS_TYPE_DVB )
                  write_adaptation_field_data_descriptor( &r, AU_INFORMATION_DATA_FIELD );
-	     else if( w->ts_type == TS_TYPE_CABLELABS )
+             else if( w->ts_type == TS_TYPE_CABLELABS )
                  write_scte_adaptation_descriptor( &r );
          }
 
@@ -1286,11 +1399,7 @@ static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
          {
              // TODO
          }
-         else if( stream->stream_format == LIBMPEGTS_AUDIO_ADTS )
-         {
-             // TODO
-         }
-         else if( stream->stream_format == LIBMPEGTS_AUDIO_LATM )
+         else if( stream->stream_format == LIBMPEGTS_AUDIO_ADTS || stream->stream_format == LIBMPEGTS_AUDIO_LATM )
          {
              if( w->ts_type == TS_TYPE_DVB )
                  write_aac_descriptor( &r, stream );
@@ -1298,9 +1407,10 @@ static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
          else if( stream->stream_format == LIBMPEGTS_AUDIO_AC3 )
          {
              write_registration_descriptor( &r, REGISTRATION_DESCRIPTOR_TAG, 4, "AC-3" );
-             write_ac3_descriptor( w, &r, 0 );
-             //if( w->ts_type == TS_TYPE_ATSC || w->ts_type == TS_TYPE_CABLELABS )
-                 
+             if( stream->atsc_ac3_ctx && ( w->ts_type == TS_TYPE_ATSC || w->ts_type == TS_TYPE_CABLELABS ) )
+                 write_atsc_ac3_descriptor( &r, stream->atsc_ac3_ctx );
+             else
+                 write_ac3_descriptor( w, &r, 0 );                 
          }
          else if( stream->stream_format == LIBMPEGTS_AUDIO_EAC3 ||
                   stream->stream_format == LIBMPEGTS_AUDIO_EAC3_SECONDARY )
@@ -1314,6 +1424,12 @@ static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
          }
          else if( stream->stream_format == LIBMPEGTS_AUDIO_302M )
              write_registration_descriptor( &r, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "BSSD" );
+         else if( stream->stream_format == LIBMPEGTS_DVB_SUB )
+         {
+         }
+         else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
+         {
+         }
          else if( stream->stream_format == LIBMPEGTS_ANCILLARY_RDD11 )
              write_registration_descriptor( &r, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "LU-A" );
          else if( stream->stream_format == LIBMPEGTS_ANCILLARY_2038 )
@@ -1333,9 +1449,17 @@ static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
 
     // FIXME this will fail with a lot of streams
 
-    /* section length includes crc */
     bs_flush( &q );
-    int section_length = (bs_pos( &q ) >> 3) + 4;
+
+    if( 0 )
+    {
+        // TODO 21 bytes length of packet
+    }
+    else
+        section_length = bs_pos( &q ) >> 3;
+
+    /* section length includes crc */
+    section_length += 4;
     bs_write( s, 12, section_length & 0x3ff );
     write_bytes( s, temp, bs_pos( &q ) >> 3 );
 
@@ -1344,6 +1468,7 @@ static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
 
     /* -40 to include header and pointer field */
     write_padding( s, start - 40 );
+    // TODO buffer management
     increase_pcr( w, 1 );
 }
 
@@ -1422,7 +1547,7 @@ void write_crc( bs_t *s, int start )
 static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_frame, ts_int_pes_t *out_pes )
 {
     bs_t s, q;
-    uint8_t temp[128];
+    uint8_t temp[1024];
     int header_size, total_size;
     int64_t mod = (int64_t)1 << 33;
 
@@ -1437,7 +1562,7 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
     bs_write( &s, 8, stream->stream_id ); // stream_id
 
     /* Initialise temp buffer */
-    bs_init( &q, temp, 96 );
+    bs_init( &q, temp, 1024 );
 
     bs_write( &q, 2, 0x2 );  // '10'
     bs_write( &q, 2, 0 );    // PES_scrambling_control
@@ -1460,7 +1585,9 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
     bs_write1( &q, 0 );      // PES_CRC_flag
     bs_write1( &q, 0 );      // PES_extension_flag
 
-    if( same_timestamps )
+    if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
+        bs_write( &q, 8, 0x24 ); // PES_header_data_length
+    else if( same_timestamps )
         bs_write( &q, 8, 0x05 ); // PES_header_data_length (PTS only)
     else
         bs_write( &q, 8, 0x0a ); // PES_header_data_length (PTS and DTS)
@@ -1475,11 +1602,21 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
         write_timestamp( &q, out_pes->dts % mod ); // DTS
     }
 
+    /* TTX requires extra stuffing */
+    if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
+    {
+        int num_stuffing = 45 - (bs_pos( &q ) >> 3);
+        for( int i = 0; i < num_stuffing; i++ )
+            bs_write( &q, 8, 0xff );
+    }
+
     bs_flush( &q );
     total_size = in_frame->size + (bs_pos( &q ) >> 3);
 
     if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_AVC )
         bs_write( &s, 16, 0 );          // PES_packet_length
+    else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
+        bs_write( &q, 16, 0 );          // PES_packet_length FIXME
     else
         bs_write( &s, 16, total_size ); // PES_packet_length
 
