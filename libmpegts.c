@@ -68,6 +68,7 @@ static void write_ac3_descriptor( ts_writer_t *w, bs_t *s, int e_ac3 );
 
 static int check_pcr( ts_writer_t *w, ts_int_program_t *program );
 static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, int first );
+static int eject_queued_pmt( ts_int_program_t *program, bs_t *s );
 static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *program, ts_int_pes_t *pes,
                                    int write_pcr, int flags, int stuffing, int discontinuity );
 static void write_pcr_empty( ts_writer_t *w, ts_int_program_t *program, int first );
@@ -78,7 +79,7 @@ static void drip_buffer( ts_int_program_t *program, int rx, buffer_t *buffer, do
 
 /* Tables */
 static void write_pat( ts_writer_t *w );
-static void write_pmt( ts_writer_t *w, ts_int_program_t *program );
+static int write_pmt( ts_writer_t *w, ts_int_program_t *program );
 
 static void write_timestamp( bs_t *s, uint64_t timestamp );
 static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_frame, ts_int_pes_t *out_pes );
@@ -100,7 +101,7 @@ ts_writer_t *ts_create_writer( void )
 int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
 {
     // TODO check for PID collisions, add MPTS support
-    if( params->ts_type < TS_TYPE_DVB || params->ts_type > TS_TYPE_BLU_RAY )
+    if( params->ts_type < TS_TYPE_GENERIC || params->ts_type > TS_TYPE_BLU_RAY )
     {
         fprintf( stderr, "Invalid Transport Stream type.\n" );
         return -1;
@@ -702,8 +703,11 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             w->out.i_bitstream += 100000;
             w->out.p_bitstream = realloc( w->out.p_bitstream, w->out.i_bitstream );
 
-            if( !w->out.p_bitstream )
+            if( w->out.p_bitstream < 0 )
+            {
+                fprintf( stderr, "malloc failed\n" );
                 return -1;
+            }
 
             intptr_t delta = w->out.p_bitstream - bs_bak;
 
@@ -713,7 +717,12 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             bs_realign( s );
         }
 
-        /* check for any queued PMT packets */
+        /* write any queued PMT packets */
+        if( program->num_queued_pmt )
+        {
+            eject_queued_pmt( program, s );
+            continue;
+        }
 
         // FIXME at low bitrates this might need tweaking
 
@@ -787,7 +796,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
             if( pes->bytes_left >= pkt_bytes_left )
             {
-                write_packet_header( w, pes_start, stream->pid, PAYLOAD_ONLY + ((!!adapt_field_len)<<1), &stream->cc );
+                write_packet_header( w, s, pes_start, stream->pid, PAYLOAD_ONLY + ((!!adapt_field_len)<<1), &stream->cc );
                 if( adapt_field_len )
                     write_adaptation_field( w, s, program, pes, write_pcr, 1, 0, 0 );
 
@@ -816,7 +825,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                     stuffing -= 2;  /* 2 bytes for adaptation field in this case. NOTE: needs fixing if more private data added */
                 }
 
-                write_packet_header( w, pes_start, stream->pid, PAYLOAD_ONLY + ((!!adapt_field_len)<<1), &stream->cc );
+                write_packet_header( w, s, pes_start, stream->pid, PAYLOAD_ONLY + ((!!adapt_field_len)<<1), &stream->cc );
                 if( adapt_field_len )
                     write_adaptation_field( w, s, program, pes, write_pcr, flags, stuffing, 0 );
 
@@ -910,7 +919,6 @@ int ts_close_writer( ts_writer_t *w )
         for( int j = 0; j < w->programs[i]->num_streams; j++ )
         {
             // TODO free other stuff
-            free( w->programs[i]->streams[j] );
             if( w->programs[i]->streams[j]->mpegvideo_ctx )
                 free( w->programs[i]->streams[j]->mpegvideo_ctx );
             if( w->programs[i]->streams[j]->lpcm_ctx )
@@ -919,6 +927,7 @@ int ts_close_writer( ts_writer_t *w )
                 free( w->programs[i]->streams[j]->atsc_ac3_ctx );
             if( w->programs[i]->streams[j]->dvb_sub_ctx )
                 free( w->programs[i]->streams[j]->dvb_sub_ctx );
+            free( w->programs[i]->streams[j] );
         }
     }
 
@@ -929,10 +938,8 @@ int ts_close_writer( ts_writer_t *w )
     return 0;
 }
 
-void write_packet_header( ts_writer_t *w, int start, int pid, int adapt_field, int *cc )
+void write_packet_header( ts_writer_t *w, bs_t *s, int start, int pid, int adapt_field, int *cc )
 {
-    bs_t *s = &w->out.bs;
-
     if( w->ts_type == TS_TYPE_BLU_RAY )
     {
         // tp_extra_header
@@ -1154,10 +1161,28 @@ static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, in
     {
         w->last_pat = (uint64_t)(program->cur_pcr * 27000000LL);
         write_pat( w );
-        write_pmt( w, program );
+        write_pmt( w, program ); // FIXME handle failure
     }
 
 }
+
+static int eject_queued_pmt( ts_int_program_t *program, bs_t *s )
+{
+    write_bytes( s, program->pmt_packets[0], TS_PACKET_SIZE );
+
+    if( program->num_queued_pmt > 1 )
+        memmove( &program->pmt_packets[0], &program->pmt_packets[1], (program->num_queued_pmt-1) * sizeof(uint8_t*) );
+
+    program->pmt_packets = realloc( program->pmt_packets, (program->num_queued_pmt-1) * sizeof(uint8_t*) );
+    if( program->pmt_packets < 0 )
+    {
+        fprintf( stderr, "malloc failed\n" );
+        return -1;
+    }
+    program->num_queued_pmt--;
+
+    return 0;
+};
 
 static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *program, ts_int_pes_t *pes,
                                    int write_pcr, int flags, int stuffing, int discontinuity )
@@ -1242,7 +1267,7 @@ static void write_pcr_empty( ts_writer_t *w, ts_int_program_t *program, int firs
 {
     bs_t *s = &w->out.bs;
 
-    write_packet_header( w, 0, program->pcr_stream->pid, ADAPT_FIELD_ONLY, &program->pcr_stream->cc );
+    write_packet_header( w, s, 0, program->pcr_stream->pid, ADAPT_FIELD_ONLY, &program->pcr_stream->cc );
     int stuffing = 184 - 6 - 2; /* pcr, flags and length */
     int discontinuity = first && w->ts_type == TS_TYPE_CABLELABS;
     write_adaptation_field( w, s, program, NULL, 1, 1, stuffing, discontinuity );
@@ -1257,7 +1282,7 @@ static void write_pat( ts_writer_t *w )
     int start;
     bs_t *s = &w->out.bs;
 
-    write_packet_header( w, 1, PAT_PID, PAYLOAD_ONLY, &w->pat_cc );
+    write_packet_header( w, s, 1, PAT_PID, PAYLOAD_ONLY, &w->pat_cc );
     bs_write( s, 8, 0 ); // pointer field
 
     start = bs_pos( s );
@@ -1300,99 +1325,109 @@ static void write_pat( ts_writer_t *w )
     increase_pcr( w, 1 );
 }
 
-static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
+static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
 {
     int start;
     bs_t *s = &w->out.bs;
 
-    uint8_t temp[4096], temp2[1024];
-    bs_t q, r;
+    uint8_t pmt_buf[2048], temp[2048], temp1[2048];
+    bs_t o, p, q;
     int section_length;
 
-    write_packet_header( w, 1, program->pmt.pid, PAYLOAD_ONLY, &program->pmt.cc );
+    /* this should never happen */
+    if( program->num_queued_pmt )
+    {
+        if( eject_queued_pmt( program, s ) < 0 )
+            return -1;
+        return 0;
+    }
+
+    start = bs_pos( s );
+    write_packet_header( w, s, 1, program->pmt.pid, PAYLOAD_ONLY, &program->pmt.cc );
 
     bs_write( s, 8, 0 );       // pointer field
 
-    start = bs_pos( s );
-    bs_write( s, 8, PMT_TID ); // table_id = program_map_section
-    bs_write1( s, 1 );         // section_syntax_indicator
-    bs_write1( s, 0 );         // '0'
-    bs_write( s, 2, 0x3 );     // reserved
+    bs_init( &o, pmt_buf, 2048 );
 
-    bs_init( &q, temp, 4096 );
+    bs_write( &o, 8, PMT_TID ); // table_id = program_map_section
+    bs_write1( &o, 1 );         // section_syntax_indicator
+    bs_write1( &o, 0 );         // '0'
+    bs_write( &o, 2, 0x3 );     // reserved
 
-    bs_write( &q, 16, program->program_num & 0xffff ); // program_number
-    bs_write( &q, 2, 0x3 ); // reserved
-    bs_write( &q, 5, 0 );    // version_number
-    bs_write1( &q, 1 );      // current_next_indicator
-    bs_write( &q, 8, 0 );    // section_number
-    bs_write( &q, 8, 0 );    // last_section_number
-    bs_write( &q, 3, 0x7 );  // reserved
+    bs_init( &p, temp, 2048 );
 
-    bs_write( &q, 13, program->pcr_stream[0].pid & 0x1fff ); // PCR PID
-    bs_write( &q, 4, 0xf );  // reserved
+    bs_write( &p, 16, program->program_num & 0xffff ); // program_number
+    bs_write( &p, 2, 0x3 );  // reserved
+    bs_write( &p, 5, 0 );    // version_number
+    bs_write1( &p, 1 );      // current_next_indicator
+    bs_write( &p, 8, 0 );    // section_number
+    bs_write( &p, 8, 0 );    // last_section_number
+    bs_write( &p, 3, 0x7 );  // reserved
+
+    bs_write( &p, 13, program->pcr_stream[0].pid & 0x1fff ); // PCR PID
+    bs_write( &p, 4, 0xf );  // reserved
 
     /* setup temporary bitstream context */
-    bs_init( &r, temp2, 1024 );
+    bs_init( &q, temp1, 2048 );
 
     if( w->ts_type == TS_TYPE_ATSC )
     {
-        write_registration_descriptor( &r, REGISTRATION_DESCRIPTOR_TAG, 4, "GA94" );
-        write_smoothing_buffer_descriptor( &r, program );
+        write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "GA94" );
+        write_smoothing_buffer_descriptor( &q, program );
     }
     else if( w->ts_type == TS_TYPE_CABLELABS )
-        write_registration_descriptor( &r, REGISTRATION_DESCRIPTOR_TAG, 4, "SCTE" );
+        write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "SCTE" );
     else if( w->ts_type == TS_TYPE_BLU_RAY )
-        write_registration_descriptor( &r, REGISTRATION_DESCRIPTOR_TAG, 4, "HDMV" );
+        write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "HDMV" );
 
     if( program->cablelabs_is_3d )
-        write_cablelabs_3d_descriptor( &r );
+        write_cablelabs_3d_descriptor( &q );
 
     /* Optional descriptor(s) here */
 
-    bs_flush( &r );
-    bs_write( &q, 12, bs_pos( &r ) >> 3 );   // program_info_length
-    write_bytes( &q, temp2, bs_pos( &r ) >> 3 );
+    bs_flush( &q );
+    bs_write( &p, 12, bs_pos( &q ) >> 3 );   // program_info_length
+    write_bytes( &p, temp1, bs_pos( &q ) >> 3 );
 
     for( int i = 0; i < program->num_streams; i++ )
     {
          ts_int_stream_t *stream = program->streams[i];
 
-         bs_write( &q, 8, stream->stream_type & 0xff ); // stream_type
-         bs_write( &q, 3, 0x7 );  // reserved
-         bs_write( &q, 13, stream->pid & 0x1fff ); // elementary_PID
-         bs_write( &q, 4, 0xf );  // reserved
+         bs_write( &p, 8, stream->stream_type & 0xff ); // stream_type
+         bs_write( &p, 3, 0x7 );  // reserved
+         bs_write( &p, 13, stream->pid & 0x1fff ); // elementary_PID
+         bs_write( &p, 4, 0xf );  // reserved
 
-         /* setup temporary bitstream context */
-         bs_init( &r, temp2, 1024 );
+         /* reset temporary bitstream context for streams loop */
+         bs_init( &q, temp1, 512 );
 
          // FIXME not in certain cases
-         write_data_stream_alignment_descriptor( &r );
+         write_data_stream_alignment_descriptor( &q );
 
          if( stream->dvb_au )
          {
              if( w->ts_type == TS_TYPE_DVB )
-                 write_adaptation_field_data_descriptor( &r, AU_INFORMATION_DATA_FIELD );
+                 write_adaptation_field_data_descriptor( &q, AU_INFORMATION_DATA_FIELD );
              else if( w->ts_type == TS_TYPE_CABLELABS )
-                 write_scte_adaptation_descriptor( &r );
+                 write_scte_adaptation_descriptor( &q );
          }
 
          if( stream->write_lang_code )
-             write_iso_lang_descriptor( &r, stream );
+             write_iso_lang_descriptor( &q, stream );
 
          if( stream->has_stream_identifier )
-             write_stream_identifier_descriptor( &r, stream->stream_identifier );
+             write_stream_identifier_descriptor( &q, stream->stream_identifier );
 
          if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 )
          {
              if( w->ts_type == TS_TYPE_BLU_RAY )
-                 write_hdmv_video_registration_descriptor( &r, stream );
+                 write_hdmv_video_registration_descriptor( &q, stream );
          }
          else if( stream->stream_format == LIBMPEGTS_VIDEO_AVC )
          {
-             write_avc_descriptor( &r, stream );
+             write_avc_descriptor( &q, stream );
              if( w->ts_type == TS_TYPE_BLU_RAY )
-                 write_hdmv_video_registration_descriptor( &r, stream );
+                 write_hdmv_video_registration_descriptor( &q, stream );
          }
          else if( stream->stream_format == LIBMPEGTS_AUDIO_MPEG1 ||
                   stream->stream_format == LIBMPEGTS_AUDIO_MPEG2 )
@@ -1402,28 +1437,28 @@ static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
          else if( stream->stream_format == LIBMPEGTS_AUDIO_ADTS || stream->stream_format == LIBMPEGTS_AUDIO_LATM )
          {
              if( w->ts_type == TS_TYPE_DVB )
-                 write_aac_descriptor( &r, stream );
+                 write_aac_descriptor( &q, stream );
          }
          else if( stream->stream_format == LIBMPEGTS_AUDIO_AC3 )
          {
-             write_registration_descriptor( &r, REGISTRATION_DESCRIPTOR_TAG, 4, "AC-3" );
+             write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "AC-3" );
              if( stream->atsc_ac3_ctx && ( w->ts_type == TS_TYPE_ATSC || w->ts_type == TS_TYPE_CABLELABS ) )
-                 write_atsc_ac3_descriptor( &r, stream->atsc_ac3_ctx );
+                 write_atsc_ac3_descriptor( &q, stream->atsc_ac3_ctx );
              else
-                 write_ac3_descriptor( w, &r, 0 );                 
+                 write_ac3_descriptor( w, &q, 0 );                 
          }
          else if( stream->stream_format == LIBMPEGTS_AUDIO_EAC3 ||
                   stream->stream_format == LIBMPEGTS_AUDIO_EAC3_SECONDARY )
          {
-             write_registration_descriptor( &r, REGISTRATION_DESCRIPTOR_TAG, 4, "AC-3" );
-             write_ac3_descriptor( w, &r, 1 );
+             write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "AC-3" );
+             write_ac3_descriptor( w, &q, 1 );
          }
          else if( stream->stream_format == LIBMPEGTS_AUDIO_DTS )
          {
              // TODO
          }
          else if( stream->stream_format == LIBMPEGTS_AUDIO_302M )
-             write_registration_descriptor( &r, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "BSSD" );
+             write_registration_descriptor( &q, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "BSSD" );
          else if( stream->stream_format == LIBMPEGTS_DVB_SUB )
          {
          }
@@ -1431,45 +1466,81 @@ static void write_pmt( ts_writer_t *w, ts_int_program_t *program )
          {
          }
          else if( stream->stream_format == LIBMPEGTS_ANCILLARY_RDD11 )
-             write_registration_descriptor( &r, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "LU-A" );
+             write_registration_descriptor( &q, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "LU-A" );
          else if( stream->stream_format == LIBMPEGTS_ANCILLARY_2038 )
          {
-             write_registration_descriptor( &r, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "VANC" );
-             write_anc_data_descriptor( &r );
+             write_registration_descriptor( &q, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "VANC" );
+             write_anc_data_descriptor( &q );
          }
 
          // TODO other stream_type descriptors
 
          /* Optional descriptor(s) here */
 
-         bs_flush( &r );
-         bs_write( &q, 12, bs_pos( &r ) >> 3 );   // ES_info_length
-         write_bytes( &q, temp2, bs_pos( &r ) >> 3 );
+         bs_flush( &q );
+         bs_write( &p, 12, bs_pos( &q ) >> 3 );   // ES_info_length
+         write_bytes( &p, temp1, bs_pos( &q ) >> 3 );
     }
-
-    // FIXME this will fail with a lot of streams
-
-    bs_flush( &q );
-
-    if( 0 )
-    {
-        // TODO 21 bytes length of packet
-    }
-    else
-        section_length = bs_pos( &q ) >> 3;
 
     /* section length includes crc */
-    section_length += 4;
-    bs_write( s, 12, section_length & 0x3ff );
-    write_bytes( s, temp, bs_pos( &q ) >> 3 );
+    section_length = (bs_pos( &p ) >> 3) + 4;
+    bs_write( &o, 12, section_length & 0x3ff );
 
+    /* write main chunk into pmt array */
+    bs_flush( &p );
+    write_bytes( &o, temp, bs_pos( &p ) >> 3 );
+
+    /* take crc of the whole program map section */
+    bs_flush( &o );
+    write_crc( &o, 0 );
+
+    int length = bs_pos( &o ) >> 3;
+    int bytes_left = TS_PACKET_SIZE - ((bs_pos( s ) - start) >> 3);
+
+    bs_flush( &o );
+    write_bytes( s, pmt_buf, MIN( bytes_left, length ) );
     bs_flush( s );
-    write_crc( s, start );
 
-    /* -40 to include header and pointer field */
-    write_padding( s, start - 40 );
+    write_padding( s, start );
     // TODO buffer management
     increase_pcr( w, 1 );
+
+    int pos = MIN( bytes_left, length );
+    length -= MIN( bytes_left, length );
+
+    bytes_left = 184;
+
+    /* queue up pmt packets for spaced output */
+    while( length > bytes_left )
+    {
+        bs_t z;
+
+        program->pmt_packets = realloc( program->pmt_packets, (program->num_queued_pmt + 1) * sizeof(uint8_t*));
+        if( program->pmt_packets < 0 )
+        {
+            fprintf( stderr, "malloc failed" );
+            return -1;
+        }
+
+        program->pmt_packets[program->num_queued_pmt] = malloc( TS_PACKET_SIZE );
+        if( !program->pmt_packets[program->num_queued_pmt] )
+        {
+            fprintf( stderr, "malloc failed" );
+            return -1;
+        }
+
+	bs_init( &z, program->pmt_packets[program->num_queued_pmt], 188 );
+
+        write_packet_header( w, &z, 0, program->pmt.pid, PAYLOAD_ONLY, &program->pmt.cc );
+        write_bytes( &z, &temp[pos], MIN( bytes_left, length ) );
+	bs_flush( &z );
+        write_padding( &z, 0 );
+        pos += MIN( bytes_left, length );
+	length -= MIN( bytes_left, length );
+        program->num_queued_pmt++;
+    }
+
+    return 0;
 }
 
 /* DVB / Blu-Ray Service Information */
@@ -1479,7 +1550,7 @@ static void write_sit( ts_writer_t *w )
     int len = 0; // FIXME
     bs_t *s = &w->out.bs;
 
-    write_packet_header( w, 1, SIT_PID, PAYLOAD_ONLY, &w->sit->cc );
+    write_packet_header( w, s, 1, SIT_PID, PAYLOAD_ONLY, &w->sit->cc );
     bs_write( s, 8, 0 );       // pointer field
 
     start = bs_pos( s );
@@ -1640,7 +1711,7 @@ static void write_null_packet( ts_writer_t *w )
     bs_t *s = &w->out.bs;
     start = bs_pos( s );
 
-    write_packet_header( w, 0, NULL_PID, PAYLOAD_ONLY, &cc );
+    write_packet_header( w, s, 0, NULL_PID, PAYLOAD_ONLY, &cc );
     write_padding( s, start );
 
     increase_pcr( w, 1 );

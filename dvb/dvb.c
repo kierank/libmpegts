@@ -95,7 +95,7 @@ void write_nit( ts_writer_t *w )
 
     bs_t *s = &w->out.bs;
 
-    write_packet_header( w, 1, w->network_pid, PAYLOAD_ONLY, &w->nit->cc );
+    write_packet_header( w, s, 1, w->network_pid, PAYLOAD_ONLY, &w->nit->cc );
 
     bs_write( s, 8, 0 );       // pointer field
 
@@ -142,7 +142,7 @@ void write_sdt( ts_writer_t *w )
 
     bs_t *s = &w->out.bs;
 
-    write_packet_header( w, 1, SDT_PID, PAYLOAD_ONLY, &w->sdt->cc );
+    write_packet_header( w, s, 1, SDT_PID, PAYLOAD_ONLY, &w->sdt->cc );
     bs_write( s, 8, 0 );         // pointer field
 
     start = bs_pos( s );
@@ -204,7 +204,7 @@ void write_eit( ts_writer_t *w )
 
     bs_t *s = &w->out.bs;
 
-    write_packet_header( w, 1, EIT_PID, PAYLOAD_ONLY, &w->eit->cc );
+    write_packet_header( w, s, 1, EIT_PID, PAYLOAD_ONLY, &w->eit->cc );
     bs_write( s, 8, 0 );       // pointer field
 
     start = bs_pos( s );
@@ -225,7 +225,7 @@ void write_tdt( ts_writer_t *w )
 
     bs_t *s = &w->out.bs;
 
-    write_packet_header( w, 1, TDT_PID, PAYLOAD_ONLY, &w->tdt->cc );
+    write_packet_header( w, s, 1, TDT_PID, PAYLOAD_ONLY, &w->tdt->cc );
     bs_write( s, 8, 0 );       // pointer field
 
     start = bs_pos( s );

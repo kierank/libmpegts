@@ -241,6 +241,9 @@ typedef struct
     ts_int_stream_t pmt;
     int program_num;
 
+    int num_queued_pmt;
+    uint8_t **pmt_packets;
+
     int num_streams;
     ts_int_stream_t *streams[MAX_STREAMS];
     ts_int_stream_t *pcr_stream;
@@ -325,7 +328,7 @@ enum adaptation_field_control_e
 };
 
 void write_bytes( bs_t *s, uint8_t *bytes, int length );
-void write_packet_header( ts_writer_t *w, int start, int pid, int adapt_field, int *cc );
+void write_packet_header( ts_writer_t *w, bs_t *s, int start, int pid, int adapt_field, int *cc );
 void write_registration_descriptor( bs_t *s, int descriptor_tag, int descriptor_length, char *format_id );
 void write_crc( bs_t *s, int start );
 int write_padding( bs_t *s, int start );
