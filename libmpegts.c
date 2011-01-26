@@ -68,7 +68,7 @@ static void write_ac3_descriptor( ts_writer_t *w, bs_t *s, int e_ac3 );
 
 static int check_pcr( ts_writer_t *w, ts_int_program_t *program );
 static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, int first );
-static int eject_queued_pmt( ts_int_program_t *program, bs_t *s );
+static int eject_queued_pmt( ts_writer_t *w, ts_int_program_t *program, bs_t *s );
 static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *program, ts_int_pes_t *pes,
                                    int write_pcr, int flags, int stuffing, int discontinuity );
 static void write_pcr_empty( ts_writer_t *w, ts_int_program_t *program, int first );
@@ -718,9 +718,9 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         }
 
         /* write any queued PMT packets */
-        if( program->num_queued_pmt )
+        if( program->num_queued_pmt && w->tb.cur_buf == 0.0 )
         {
-            eject_queued_pmt( program, s );
+            eject_queued_pmt( w, program, s );
             continue;
         }
 
@@ -1166,7 +1166,7 @@ static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, in
 
 }
 
-static int eject_queued_pmt( ts_int_program_t *program, bs_t *s )
+static int eject_queued_pmt( ts_writer_t *w, ts_int_program_t *program, bs_t *s )
 {
     write_bytes( s, program->pmt_packets[0], TS_PACKET_SIZE );
 
@@ -1180,6 +1180,9 @@ static int eject_queued_pmt( ts_int_program_t *program, bs_t *s )
         return -1;
     }
     program->num_queued_pmt--;
+
+    add_to_buffer( &w->tb );
+    increase_pcr( w, 1 );
 
     return 0;
 };
@@ -1321,7 +1324,7 @@ static void write_pat( ts_writer_t *w )
 
     // -40 to include header and pointer field
     write_padding( s, start - 40 );
-    // TODO buffer management
+    add_to_buffer( &w->tb );
     increase_pcr( w, 1 );
 }
 
@@ -1337,7 +1340,7 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
     /* this should never happen */
     if( program->num_queued_pmt )
     {
-        if( eject_queued_pmt( program, s ) < 0 )
+        if( eject_queued_pmt( w, program, s ) < 0 )
             return -1;
         return 0;
     }
@@ -1502,7 +1505,7 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
     bs_flush( s );
 
     write_padding( s, start );
-    // TODO buffer management
+    add_to_buffer( &w->tb );
     increase_pcr( w, 1 );
 
     int pos = MIN( bytes_left, length );
