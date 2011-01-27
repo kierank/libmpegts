@@ -83,6 +83,7 @@
 #define PRIVATE_DATA_DESCRIPTOR_TAG          0xe
 #define SMOOTHING_BUFFER_DESCRIPTOR_TAG      0x10
 #define AVC_DESCRIPTOR_TAG                   0x28
+#define MPEG2_AAC_AUDIO_DESCRIPTOR           0x2b
 #define SVC_EXTENSION_DESCRIPTOR_TAG         0x30
 #define MVC_EXTENSION_DESCRIPTOR_TAG         0x31
 #define USER_DEFINED_DESCRIPTOR_TAG          0xc4
@@ -187,8 +188,9 @@ typedef struct
     int audio_type;
 
     /* AAC */
-    int is_mpeg4;
+    int aac_is_mpeg4;
     int aac_profile;
+    int aac_channel_map;
 
     /* ATSC */
 
@@ -248,6 +250,8 @@ typedef struct
     ts_int_stream_t *streams[MAX_STREAMS];
     ts_int_stream_t *pcr_stream;
 
+    int pmt_version;
+
     double cur_pcr;
     uint64_t last_pcr;
 
@@ -285,6 +289,8 @@ struct ts_writer_t
     int pat_period;
     int pcr_period;
     int first_input;
+
+    int pat_version;
 
     int network_pid;
     int network_id;

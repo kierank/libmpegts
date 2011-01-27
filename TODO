@@ -4,9 +4,9 @@ Most important TODO is to get streams verified with a good analyzer
 Add Blu-ray formats - dealing with vbr audio?
 Is the use of double precision for the PCR within its tolerance?
 Is there a need to implement full T-STD modelling or use the simpler version currently implemented?
-Decide on a buffering model for DVB Subtitles and Teletext
+A true VBR mode? How to implement?
 Write ATSC PSIP
 Write DVB Tables (SIT, NIT, EIT) etc
 Sort out T-STD on SMPTE packets
 Add more formats
-Improve the Makefile
+

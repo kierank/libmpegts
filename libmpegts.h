@@ -250,7 +250,7 @@ typedef struct
  *
  * PIDs must be between 33 and 8190 (DVB)
  * program_num must be between 1 and 8190
- * PCR PID can be the same as a stream in the program (usually video PID)
+ * PCR PID can be the same as a stream in the program (video PID or separate PID recommended)
  *
  * cablelabs_is_3d -
  * Write 3d_MPEG2_descriptor in PMT (CableLabs OC-SP-CEP3.0-I01-100827).
@@ -259,8 +259,7 @@ typedef struct
  * Smoothing Buffer (Required for ATSC) -
  * sb_leak_rate - smoothing buffer leak rate (in units of 400 bits/s)
  * sb_size - in bytes
- *
- * */
+ */
 typedef struct
 {
     int pmt_pid;
@@ -289,7 +288,7 @@ ts_writer_t *ts_create_writer( void );
  * network_pid - PID of the network table (0 otherwise)
  * legacy_constraints - Comply with CableLabs legacy contraints in Section 7.3 of Content Encoding Profiles 3.0 Specification 
  *
- * retransmit period in (ms)
+ * retransmit periods in milliseconds
  *
  * CURRENT LIMITATIONS
  *
@@ -315,7 +314,6 @@ typedef struct ts_main_t
 
     int pcr_period;
     int pat_period;
-    int pmt_period;
 
     // FIXME dvb land
     int network_id;
@@ -357,13 +355,19 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
 #define LIBMPEGTS_MPEG2_AAC_MAIN_PROFILE 0
 #define LIBMPEGTS_MPEG2_AAC_LC_PROFILE   1
 
-// TODO
+#define LIBMPEGTS_MPEG2_AAC_1_CHANNEL    1
+#define LIBMPEGTS_MPEG2_AAC_2_CHANNEL    2
+#define LIBMPEGTS_MPEG2_AAC_3_CHANNEL    3
+#define LIBMPEGTS_MPEG2_AAC_4_CHANNEL    4
+#define LIBMPEGTS_MPEG2_AAC_5_CHANNEL    5
+#define LIBMPEGTS_MPEG2_AAC_5_POINT_1_CHANNEL 6
+#define LIBMPEGTS_MPEG2_AAC_7_POINT_1_CHANNEL 7
 
 /* Setup / Update MPEG-2 AAC Stream
  *
  */
 
-int ts_setup_mpeg2_aac_stream( ts_writer_t *w  );
+int ts_setup_mpeg2_aac_stream( ts_writer_t *w, int pid, int profile, int channel_map );
 
 #define LIBMPEGTS_MPEG4_AAC_MAIN_PROFILE_LEVEL_1 0x10
 #define LIBMPEGTS_MPEG4_AAC_MAIN_PROFILE_LEVEL_2 0x11
@@ -380,7 +384,10 @@ int ts_setup_mpeg2_aac_stream( ts_writer_t *w  );
 
 /* Setup / Update MPEG-4 AAC Stream
  * profile_and_level - self explanatory
- * num_channels - number of channels (excluding LFE channel) */
+ * num_channels - number of channels (excluding LFE channel)
+ *
+ * It is the responsibility of the calling application to encapsulate using ADTS or LATM
+ */
 
 int ts_setup_mpeg4_aac_stream( ts_writer_t *w, int pid, int profile_and_level, int num_channels );
 
@@ -554,9 +561,12 @@ int ts_setup_dtcp( ts_writer_t *w, uint8_t byte_1, uint8_t byte_2 );
 /* ts_frame_t
  *
  * PID - Packet Identifier (i.e. which stream the payload is associated with)
+ * 
  * DTS - Decode Time Stamp (in 90kHz clock ticks - maximum 30 bits)
  * PTS - Presentation Time Stamp (in 90kHz clock ticks - maximum 30 bits)
- * (PTS and DTS may have codec-specific meanings. See ISO 13818-1 for more information.
+ * (PTS and DTS may have codec-specific meanings. See ISO 13818-1 for more information)
+ * Generally, non-video formats have PTS equal to DTS.
+ *
  * This data does not need to be wrapped around )
  * random_access - Data contains an "elementary stream access point"
  * priority - Indicate payload has priority

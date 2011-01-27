@@ -88,7 +88,7 @@ DEVNULL='/dev/null'
 
 debug="no"
 pic="no"
-shared="yes"
+shared="no"
 
 CFLAGS="$CFLAGS -Wall -I."
 LDFLAGS="$LDFLAGS"
