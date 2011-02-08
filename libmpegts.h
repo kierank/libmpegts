@@ -185,9 +185,7 @@ typedef struct ts_writer_t ts_writer_t;
  * stream_format - Use stream formats above
  * stream_id - See Table 2-22 in ISO 13818-1
  *
- * max_frame_size - Size of largest frame in 90kHz ticks.
- * For video streams this is the size of the buffer in seconds (i.e vbv_bufsize * 90000/vbv_maxrate)
- * For audio streams this is the size of one frame in seconds. (e.g. for ac3 1536 * 90000/samplerate )
+ * audio_frame_size - size of one audio frame in 90KHz ticks. (e.g. for ac3 1536 * 90000/samplerate )
  *
  * write_lang_code - Write ISO 639 descriptor for audio
  * lang_code - ISO 639 Part 2 Language code (or non-standard codes)
@@ -208,7 +206,8 @@ typedef struct
     int pid;
     int stream_format;
     int stream_id;
-    int max_frame_size;
+
+    int audio_frame_size;
 
     int write_lang_code;
     char lang_code[4];

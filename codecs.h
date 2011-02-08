@@ -104,14 +104,14 @@ const aac_buffer_t aac_buffers[] =
 /** AC3 **/
 /* AC3 buffer sizes */
 #define AC3_BS_ATSC 2592*8
-#define AC3_BS_DVB 5696*8
+#define AC3_BS_DVB  5696*8
 
 /* SMPTE 302M */
 #define SMPTE_302M_AUDIO_BS 65024*8
 #define SMPTE_302M_AUDIO_SR 48000
 
 /* Misc Audio */
-#define MISC_AUDIO_BS 3584*8
+#define MISC_AUDIO_BS  3584*8
 #define MISC_AUDIO_RXN 2000000
 
 /* DVB Subtitles */
@@ -120,7 +120,6 @@ const aac_buffer_t aac_buffers[] =
 #define DVB_SUB_DDS_TB_SIZE TB_SIZE*2*8
 #define DVB_SUB_DDS_RXN     400000
 #define DVB_SUB_DDS_MB_SIZE 100000
-
 
 /* Teletext */
 #define TELETEXT_T_BS  480*8 /* Seems to have an odd Transport Buffer size */

@@ -215,7 +215,8 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         }
 
         cur_stream->stream_id = stream_in->stream_id;
-        cur_stream->max_frame_size = stream_in->max_frame_size;
+        /* Use audio frame size for now. Video streams will have this rewritten */
+        cur_stream->max_frame_size = stream_in->audio_frame_size;
 
         if( stream_in->has_stream_identifier )
         {
@@ -226,7 +227,7 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         cur_stream->dvb_au = stream_in->dvb_au;
         cur_stream->dvb_au_frame_rate = stream_in->dvb_au_frame_rate;
 
-        cur_stream->hdmv_frame_rate = stream_in->hdmv_frame_rate;
+        cur_stream->hdmv_frame_rate   = stream_in->hdmv_frame_rate;
         cur_stream->hdmv_aspect_ratio = stream_in->hdmv_aspect_ratio;
         cur_stream->hdmv_video_format = stream_in->hdmv_video_format;
 
@@ -366,6 +367,7 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
 
     stream->mpegvideo_ctx->level = level;
     stream->mpegvideo_ctx->profile = profile;
+    stream->max_frame_size = (int)(((double)vbv_bufsize * 90000LL / vbv_maxrate) + 0.5);
 
     if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 )
     {
@@ -751,7 +753,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
             if( w->out.p_bitstream < 0 )
             {
-                fprintf( stderr, "malloc failed\n" );
+                fprintf( stderr, "realloc failed\n" );
                 return -1;
             }
 
@@ -772,19 +774,24 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
         // FIXME at low bitrates this might need tweaking
 
-        /* check all the non-video packets first */
+        /* Check all the non-video packets first */
         for( int i = 0; i < cur_num_pes; i++ )
         {
             if( !pes || cur_pes[i]->dts < pes->dts )
             {
                 stream = cur_pes[i]->stream;
-                pes_pcr = (double)(cur_pes[i]->dts - stream->max_frame_size)/90000; /* earliest that a frame can arrive */
+                /* Teletext is special because data can only stay in the buffer for 40ms */
+                if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
+                    pes_pcr = (double)(cur_pes[i]->dts - 3600)/90000; 
+                else
+                    pes_pcr = (double)(cur_pes[i]->dts - stream->max_frame_size)/90000; /* earliest that a frame can arrive */
+
                 if( cur_pes[i]->stream->stream_format > 31 && program->cur_pcr >= pes_pcr && cur_pes[i]->stream->tb.cur_buf == 0.0 )
                     pes = cur_pes[i];
             }
         }
 
-        /* See if we can write a video packet if non-audio packets can't be written */
+        /* See if we can write a video packet if non-audio packets can't be written. */
         if( !pes )
         {
             for( int i = 0; i < cur_num_pes; i++ )
@@ -812,7 +819,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
             bs_init( &q, temp, 256 );
 
-            /* it is good practice to write a pcr at the beginning of a video payload */
+            /* It is good practice to write a pcr at the beginning of a video payload */
             if( program->pcr_stream == stream && pes_start )
                 write_pcr = 1;
             else if( check_pcr( w, program ) )
@@ -1217,6 +1224,7 @@ static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, in
     // TODO make this work with multiple programs
     if( (uint64_t)(program->cur_pcr * TS_CLOCK) - w->last_pat >= w->pat_period * 27000LL || first )
     {
+        /* Although it is not in line with the mux strategy it is good practice to write PAT and PMT together */
         w->last_pat = (uint64_t)(program->cur_pcr * 27000000LL);
         write_pat( w );
         write_pmt( w, program ); // FIXME handle failure
