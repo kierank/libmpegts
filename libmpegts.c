@@ -1269,7 +1269,7 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
     uint8_t temp[512], temp2[256];
     bs_t q, r;
 
-    double cur_pcr = w->packets_written * 8.0 * TS_PACKET_SIZE / w->ts_muxrate;
+    double cur_pcr = 8.0 * ( w->packets_written * TS_PACKET_SIZE + 7.0) / w->ts_muxrate;
 
     private_data_flag = write_dvb_au = random_access = priority = 0;
 
@@ -1303,7 +1303,6 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
              int64_t mod = (int64_t)1 << 33;
 
              program->last_pcr = pcr = cur_pcr * TS_CLOCK;
-             pcr += TS_CLOCK * 7.0 * 8.0 / w->ts_muxrate;
 
              base = (pcr / 300) % mod;
              extension = pcr % 300;
