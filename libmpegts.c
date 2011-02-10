@@ -76,7 +76,7 @@ static void write_pcr_empty( ts_writer_t *w, ts_int_program_t *program, int firs
 
 /* Buffer management */
 static void add_to_buffer( buffer_t *buffer );
-static void drip_buffer( ts_int_program_t *program, int rx, buffer_t *buffer, double next_pcr );
+static void drip_buffer( ts_writer_t *w, ts_int_program_t *program, int rx, buffer_t *buffer, double next_pcr );
 
 /* Tables */
 static void write_pat( ts_writer_t *w );
@@ -147,7 +147,6 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
     w->num_programs = 1;
     w->programs[0] = cur_program;
 
-    cur_program->cur_pcr = TS_START;
     cur_program->pmt.pid = params->programs[0].pmt_pid;
     cur_program->program_num = params->programs[0].program_num;
 
@@ -737,6 +736,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
     /* earliest arrival time that the pes packet can arrive */
     double pes_pcr = 0;
+    double cur_pcr = 0;
 
     while( cur_num_pes )
     {
@@ -774,6 +774,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
         // FIXME at low bitrates this might need tweaking
 
+        cur_pcr = w->packets_written * 8.0 * TS_PACKET_SIZE / w->ts_muxrate;
+
         /* Check all the non-video packets first */
         for( int i = 0; i < cur_num_pes; i++ )
         {
@@ -788,7 +790,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 else
                     pes_pcr = (double)(cur_pes[i]->dts - stream->max_frame_size)/90000; /* earliest that a frame can arrive */
 
-                if( cur_pes[i]->stream->stream_format > 31 && program->cur_pcr >= pes_pcr && cur_pes[i]->stream->tb.cur_buf == 0.0 )
+                if( cur_pes[i]->stream->stream_format > 31 && cur_pcr >= pes_pcr && cur_pes[i]->stream->tb.cur_buf == 0.0 )
                     pes = cur_pes[i];
             }
         }
@@ -802,7 +804,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_AVC )
                 {
                     pes_pcr = (double)(cur_pes[i]->dts - stream->max_frame_size)/90000; /* earliest that a frame can arrive */
-                    if( program->cur_pcr >= pes_pcr && cur_pes[i]->stream->tb.cur_buf == 0.0 )
+                    if( cur_pcr >= pes_pcr && cur_pes[i]->stream->tb.cur_buf == 0.0 )
                         pes = cur_pes[i];
                     break;
                 }
@@ -816,8 +818,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             pes_start = pes->data == pes->cur_pos; /* flag if packet contains pes header */
 
             // FIXME complain less
-            if( (double)pes->dts/90000 < program->cur_pcr )
-                fprintf( stderr, "\n dts is less than pcr pid: %i dts: %f pcr: %f \n", pes->stream->pid, (double)pes->dts/90000, program->cur_pcr);
+            if( (double)pes->dts/90000 < cur_pcr )
+                fprintf( stderr, "\n dts is less than pcr pid: %i dts: %f pcr: %f \n", pes->stream->pid, (double)pes->dts/90000, cur_pcr );
 
             bs_init( &q, temp, 256 );
 
@@ -903,7 +905,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                         {
                             stream = cur_pes[i]->stream;
                             pes_pcr = (double)(cur_pes[i]->dts - stream->max_frame_size)/90000; /* earliest that a frame can arrive */
-                            if( pes_pcr > program->cur_pcr )
+                            if( pes_pcr > cur_pcr )
                             {
                                 w->buffered_frames = realloc( w->buffered_frames, (w->num_buffered_frames+1) * sizeof(w->buffered_frames) );
                                 w->buffered_frames[w->num_buffered_frames++] = cur_pes[i];
@@ -1173,7 +1175,8 @@ static void write_iso_lang_descriptor( bs_t *s, ts_int_stream_t *stream )
 static int check_pcr( ts_writer_t *w, ts_int_program_t *program )
 {
     // if the next packet written goes over the max pcr retransmit boundary, write the pcr in the next packet
-    double next_pkt_pcr = program->cur_pcr + (TS_PACKET_SIZE + 7) * 8.0 / w->ts_muxrate - (double)program->last_pcr / TS_CLOCK;
+    double next_pkt_pcr = ((w->packets_written * TS_PACKET_SIZE) + (TS_PACKET_SIZE + 7)) * 8.0 / w->ts_muxrate -
+                          (double)program->last_pcr / TS_CLOCK;
     if( next_pkt_pcr >= (double)w->pcr_period / 1000 )
     {
         return 1;
@@ -1186,16 +1189,16 @@ void increase_pcr( ts_writer_t *w, int num_packets )
 {
     // TODO do this for all programs
     ts_int_program_t *program = w->programs[0];
-    double next_pcr = program->cur_pcr + (8.0 * num_packets * TS_PACKET_SIZE / w->ts_muxrate);
+    double next_pcr = (w->packets_written + num_packets) * 8.0 * TS_PACKET_SIZE / w->ts_muxrate;
 
     /* buffer drip (TODO: all buffers?) */
-    drip_buffer( program, w->rx_sys, &w->tb, next_pcr );
+    drip_buffer( w, program, w->rx_sys, &w->tb, next_pcr );
     for( int i = 0; i < program->num_streams; i++ )
     {
-        drip_buffer( program, program->streams[i]->rx, &program->streams[i]->tb, next_pcr );
+        drip_buffer( w, program, program->streams[i]->rx, &program->streams[i]->tb, next_pcr );
     }
 
-    program->cur_pcr += 8.0 * num_packets * TS_PACKET_SIZE / w->ts_muxrate;
+    w->packets_written += num_packets;
 }
 
 /**** Buffer management ****/
@@ -1204,11 +1207,12 @@ static void add_to_buffer( buffer_t *buffer )
     buffer->cur_buf += TS_PACKET_SIZE * 8;
 }
 
-static void drip_buffer( ts_int_program_t *program, int rx, buffer_t *buffer, double next_pcr )
+static void drip_buffer( ts_writer_t *w, ts_int_program_t *program, int rx, buffer_t *buffer, double next_pcr )
 {
+    double cur_pcr = w->packets_written * 8.0 * TS_PACKET_SIZE / w->ts_muxrate;
     if( buffer->last_byte_removal_time == 0.0 )
     {
-        buffer->last_byte_removal_time = program->cur_pcr;
+        buffer->last_byte_removal_time = cur_pcr;
         buffer->cur_buf -= 8;
     }
 
@@ -1225,10 +1229,11 @@ static void drip_buffer( ts_int_program_t *program, int rx, buffer_t *buffer, do
 static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, int first )
 {
     // TODO make this work with multiple programs
-    if( (uint64_t)(program->cur_pcr * TS_CLOCK) - w->last_pat >= w->pat_period * 27000LL || first )
+    double cur_pcr = w->packets_written * 8.0 * TS_PACKET_SIZE / w->ts_muxrate;
+    if( (uint64_t)(cur_pcr * TS_CLOCK) - w->last_pat >= w->pat_period * 27000LL || first )
     {
         /* Although it is not in line with the mux strategy it is good practice to write PAT and PMT together */
-        w->last_pat = (uint64_t)(program->cur_pcr * 27000000LL);
+        w->last_pat = (uint64_t)(cur_pcr * 27000000LL);
         write_pat( w );
         write_pmt( w, program ); // FIXME handle failure
     }
@@ -1264,6 +1269,8 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
     uint8_t temp[512], temp2[256];
     bs_t q, r;
 
+    double cur_pcr = w->packets_written * 8.0 * TS_PACKET_SIZE / w->ts_muxrate;
+
     private_data_flag = write_dvb_au = random_access = priority = 0;
 
     if( pes && (pes->data == pes->cur_pos) )
@@ -1295,7 +1302,7 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
              uint64_t pcr, base, extension;
              int64_t mod = (int64_t)1 << 33;
 
-             program->last_pcr = pcr = program->cur_pcr * TS_CLOCK;
+             program->last_pcr = pcr = cur_pcr * TS_CLOCK;
              pcr += TS_CLOCK * 7.0 * 8.0 / w->ts_muxrate;
 
              base = (pcr / 300) % mod;

@@ -149,6 +149,8 @@ typedef struct
     int cur_buf;  /* current buffer fill */
 
     double last_byte_removal_time;
+
+    buffer_queue_t queued_packets[10];
 } buffer_t;
 
 typedef struct
@@ -165,7 +167,7 @@ typedef struct
     mpegvideo_stream_ctx_t  *mpegvideo_ctx;
     lpcm_stream_ctx_t       *lpcm_ctx;
     ts_atsc_ac3_info        *atsc_ac3_ctx;
-    
+
     int                     num_dvb_sub;
     ts_dvb_sub_t            *dvb_sub_ctx;
 
@@ -252,7 +254,6 @@ typedef struct
 
     int pmt_version;
 
-    double cur_pcr;
     uint64_t last_pcr;
 
     int64_t video_dts;
@@ -274,6 +275,7 @@ struct ts_writer_t
     } out;
 
     uint64_t bytes_written;
+    uint64_t packets_written;
 
     int ts_type;
     int ts_id;
