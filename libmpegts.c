@@ -783,6 +783,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 /* Teletext is special because data can only stay in the buffer for 40ms */
                 if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
                     pes_pcr = (double)(cur_pes[i]->dts - 3600)/90000; 
+                else if( stream->stream_format == LIBMPEGTS_DVB_SUB )
+                    pes_pcr = 0;
                 else
                     pes_pcr = (double)(cur_pes[i]->dts - stream->max_frame_size)/90000; /* earliest that a frame can arrive */
 
@@ -1219,6 +1221,7 @@ static void drip_buffer( ts_int_program_t *program, int rx, buffer_t *buffer, do
     buffer->cur_buf = MAX( buffer->cur_buf, 0 );
 }
 
+/* PSI */
 static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, int first )
 {
     // TODO make this work with multiple programs
@@ -1730,7 +1733,7 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
 
     bs_write( &q, 4, 0x02 + !same_timestamps ); // '0010' or '0011'
 
-    write_timestamp( &q, out_pes->pts % mod );     // PTS
+    write_timestamp( &q, out_pes->pts % mod );  // PTS
 
     if( !same_timestamps )
     {
@@ -1751,10 +1754,6 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
 
     if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_AVC )
         bs_write( &s, 16, 0 );          // PES_packet_length
-    else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
-    {
-        bs_write( &s, 16, 0 );          // PES_packet_length FIXME
-    }
     else
         bs_write( &s, 16, total_size ); // PES_packet_length
 
