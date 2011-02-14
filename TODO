@@ -1,11 +1,11 @@
 libmpegts TODO list
 
 Most important TODO is to get streams verified with a good analyzer
-Add Blu-ray formats - dealing with vbr audio?
+Figure out why underflows occur unless the muxrate is approx 5-10% higher than the stream bitrates. This is a slightly too high.
 Is there a need to implement full T-STD modelling or use the simpler version currently implemented?
 A true VBR mode? How to implement?
 Write ATSC PSIP
 Write DVB Tables (SIT, NIT, EIT) etc
 Sort out T-STD on Data streams
 Add more formats
-
+Add Blu-ray formats - dealing with vbr audio?
