@@ -259,7 +259,7 @@ typedef struct
     int64_t video_dts;
 
     //sdt_program_ctx_t *sdt_ctx;
-    int cablelabs_is_3d;
+    int is_3dtv;
 
     int sb_leak_rate;
     int sb_size;

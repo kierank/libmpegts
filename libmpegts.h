@@ -37,7 +37,7 @@
 /**** Stream Formats ****/
 /* Generic */
 #define LIBMPEGTS_VIDEO_MPEG2 1
-#define LIBMPEGTS_VIDEO_AVC  2
+#define LIBMPEGTS_VIDEO_AVC   2
 
 #define LIBMPEGTS_AUDIO_MPEG1 32
 #define LIBMPEGTS_AUDIO_MPEG2 33
@@ -268,7 +268,7 @@ typedef struct
     int num_streams;
     ts_stream_t *streams;
 
-    int cablelabs_is_3d;
+    int is_3dtv;
 
     int sb_leak_rate;
     int sb_size;
@@ -602,10 +602,12 @@ typedef struct
 
 int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t **out, int *len );
 
-/* 
+/* INACTIVE
  *
  * */
 int ts_delete_stream( ts_writer_t *w, int pid );
+
+
 
 int ts_close_writer( ts_writer_t *w );
 

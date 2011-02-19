@@ -150,7 +150,7 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
     cur_program->pmt.pid = params->programs[0].pmt_pid;
     cur_program->program_num = params->programs[0].program_num;
 
-    cur_program->cablelabs_is_3d = params->programs[0].cablelabs_is_3d;
+    cur_program->is_3dtv = params->programs[0].is_3dtv;
     cur_program->sb_leak_rate = params->programs[0].sb_leak_rate;
     cur_program->sb_size = params->programs[0].sb_size;
     cur_program->video_dts = -1;
@@ -1088,7 +1088,7 @@ static void write_video_stream_descriptor( bs_t *s, ts_int_stream_t *stream )
     bs_write( s, 5, 0x1f ); // reserved
 }
 #endif
-static void write_avc_descriptor( bs_t *s, ts_int_stream_t *stream )
+static void write_avc_descriptor( bs_t *s, ts_int_program_t *program, ts_int_stream_t *stream )
 {
     bs_write( s, 8, AVC_DESCRIPTOR_TAG ); // descriptor_tag
     bs_write( s, 8, 0x04 );               // descriptor_length
@@ -1113,7 +1113,8 @@ static void write_avc_descriptor( bs_t *s, ts_int_stream_t *stream )
     bs_write( s, 8, stream->mpegvideo_ctx->level & 0xff ); // level_idc
     bs_write( s, 1, 0 );    // AVC_still_present
     bs_write( s, 1, 0 );    // AVC_24_hour_picture_flag
-    bs_write( s, 6, 0x3f ); // reserved
+    bs_write( s, 1, !program->is_3dtv ); // Frame_Packing_SEI_not_present_flag
+    bs_write( s, 5, 0x1f ); // reserved
 }
 
 static void write_data_stream_alignment_descriptor( bs_t *s )
@@ -1499,7 +1500,7 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
          }
          else if( stream->stream_format == LIBMPEGTS_VIDEO_AVC )
          {
-             write_avc_descriptor( &q, stream );
+             write_avc_descriptor( &q, program, stream );
              if( w->ts_type == TS_TYPE_BLU_RAY )
                  write_hdmv_video_registration_descriptor( &q, stream );
          }
@@ -1511,7 +1512,7 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
          else if( stream->stream_format == LIBMPEGTS_AUDIO_ADTS || stream->stream_format == LIBMPEGTS_AUDIO_LATM )
          {
              /* strictly speaking in DVB only LATM is allowed for MPEG-4 AAC audio. ADTS is commonly used however */
-             if( stream->aac_is_mpeg4 )
+             if( !stream->aac_is_mpeg4 )
                  write_mpeg2_aac_descriptor( &q, stream );
              else if( w->ts_type == TS_TYPE_DVB )
                  write_aac_descriptor( &q, stream );
