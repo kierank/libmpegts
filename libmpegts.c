@@ -62,7 +62,7 @@ static int steam_type_table[26][2] =
 /* Descriptors */
 static void write_smoothing_buffer_descriptor( bs_t *s, ts_int_program_t *program );
 //static void write_video_stream_descriptor( bs_t *s, ts_int_stream_t *stream );
-static void write_avc_descriptor( bs_t *s, ts_int_stream_t *stream );
+static void write_avc_descriptor( bs_t *s, ts_int_program_t *program, ts_int_stream_t *stream );
 static void write_data_stream_alignment_descriptor( bs_t *s );
 static void write_mpeg2_aac_descriptor( bs_t *s, ts_int_stream_t *stream );
 static void write_ac3_descriptor( ts_writer_t *w, bs_t *s, int e_ac3 );
@@ -1451,12 +1451,13 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
         write_smoothing_buffer_descriptor( &q, program );
     }
     else if( w->ts_type == TS_TYPE_CABLELABS )
+    {
         write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "SCTE" );
+        if( program->is_3dtv )
+            write_cablelabs_3d_descriptor( &q );
+    }
     else if( w->ts_type == TS_TYPE_BLU_RAY )
         write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "HDMV" );
-
-    if( program->cablelabs_is_3d )
-        write_cablelabs_3d_descriptor( &q );
 
     /* Optional descriptor(s) here */
 
