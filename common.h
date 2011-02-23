@@ -47,7 +47,7 @@
 #define TS_HEADER_SIZE 4
 #define TS_PACKET_SIZE 188
 #define TS_CLOCK       27000000LL
-#define TS_START       0
+#define TS_START       10
 
 // arbitrary
 #define MAX_PROGRAMS   100

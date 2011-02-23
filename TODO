@@ -1,9 +1,10 @@
 libmpegts TODO list
 
 Most important TODO is to get streams verified with a good analyzer
-Figure out why underflows occur unless the muxrate is approx 5-10% higher than the stream bitrates. This is a slightly too high.
 Is there a need to implement full T-STD modelling or use the simpler version currently implemented?
-A true VBR mode? How to implement?
+Do we need to control EB buffer fullness more?
+Find out why some streams where muxrate is larger than TB leak rate fail to mux.
+A true VBR mode? How to implement? Within Spec?
 Write ATSC PSIP
 Write DVB Tables (SIT, NIT, EIT) etc
 Sort out T-STD on Data streams
