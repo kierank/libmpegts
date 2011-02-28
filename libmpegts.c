@@ -710,7 +710,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         }
 
         /* 512 bytes is more than enough for pes overhead */
-        w->buffered_frames[i]->data = calloc( 1, frames[i].size + 512 );
+        w->buffered_frames[i]->data = malloc( frames[i].size + 512 );
         if( !w->buffered_frames[i]->data )
         {
            fprintf( stderr, "Malloc failed\n" );
@@ -748,13 +748,14 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             bs_flush( s );
             uint8_t *bs_bak = w->out.p_bitstream;
             w->out.i_bitstream += 100000;
-            w->out.p_bitstream = realloc( w->out.p_bitstream, w->out.i_bitstream );
+            uint8_t *temp2 = realloc( w->out.p_bitstream, w->out.i_bitstream );
 
-            if( w->out.p_bitstream < 0 )
+            if( !temp2 )
             {
                 fprintf( stderr, "realloc failed\n" );
                 return -1;
             }
+            w->out.p_bitstream = temp2;
 
             intptr_t delta = w->out.p_bitstream - bs_bak;
 
@@ -1121,6 +1122,7 @@ static void write_data_stream_alignment_descriptor( bs_t *s )
 {
     bs_write( s, 8, DATA_STREAM_ALIGNMENT_DESCRIPTOR_TAG ); // descriptor_tag
     bs_write( s, 8, 1 );               // descriptor_length
+    // FIXME make UK-DTG compliant
     bs_write( s, 8, 1 );               // alignment_type
 }
 
@@ -1245,17 +1247,21 @@ static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, in
 
 static int eject_queued_pmt( ts_writer_t *w, ts_int_program_t *program, bs_t *s )
 {
+    uint8_t **temp;
+
     write_bytes( s, program->pmt_packets[0], TS_PACKET_SIZE );
 
     if( program->num_queued_pmt > 1 )
         memmove( &program->pmt_packets[0], &program->pmt_packets[1], (program->num_queued_pmt-1) * sizeof(uint8_t*) );
 
-    program->pmt_packets = realloc( program->pmt_packets, (program->num_queued_pmt-1) * sizeof(uint8_t*) );
-    if( program->pmt_packets < 0 )
+    temp = realloc( program->pmt_packets, (program->num_queued_pmt-1) * sizeof(uint8_t*) );
+    if( !temp )
     {
         fprintf( stderr, "malloc failed\n" );
         return -1;
     }
+    program->pmt_packets = temp;
+
     program->num_queued_pmt--;
 
     add_to_buffer( &w->tb );
@@ -1416,6 +1422,7 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
     uint8_t pmt_buf[2048], temp[2048], temp1[2048];
     bs_t o, p, q;
     int section_length;
+    uint8_t **temp2;
 
     /* this should never happen */
     if( program->num_queued_pmt )
@@ -1598,12 +1605,13 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
     {
         bs_t z;
 
-        program->pmt_packets = realloc( program->pmt_packets, (program->num_queued_pmt + 1) * sizeof(uint8_t*));
-        if( program->pmt_packets < 0 )
+        temp2 = realloc( program->pmt_packets, (program->num_queued_pmt + 1) * sizeof(uint8_t*));
+        if( !temp2 )
         {
             fprintf( stderr, "malloc failed" );
             return -1;
         }
+        program->pmt_packets = temp2;
 
         program->pmt_packets[program->num_queued_pmt] = malloc( TS_PACKET_SIZE );
         if( !program->pmt_packets[program->num_queued_pmt] )

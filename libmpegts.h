@@ -71,7 +71,7 @@
 
 
 /**** Stream IDs ****/
-/* SMPTE 302M, AC3 and DVB subtitles use Private Stream 1 */
+/* SMPTE 302M, AC3, DVB subtitles and Teletext use Private Stream 1 */
 #define LIBMPEGTS_STREAM_ID_PRIVATE_1  0xbd
 #define LIBMPEGTS_STREAM_ID_PRIVATE_2  0xbf
 
@@ -251,7 +251,7 @@ typedef struct
  * program_num must be between 1 and 8190
  * PCR PID can be the same as a stream in the program (video PID or separate PID recommended)
  *
- * cablelabs_is_3d -
+ * is_3dtv -
  * Write 3d_MPEG2_descriptor in PMT (CableLabs OC-SP-CEP3.0-I01-100827).
  * Stream MUST have appropriate MPEG-2 user_data or AVC SEI with 3D information.
  *
