@@ -576,6 +576,8 @@ int ts_setup_dtcp( ts_writer_t *w, uint8_t byte_1, uint8_t byte_2 );
  * ref_pic_idc - Set if frame is needed for reconstruction of other frames (MPEG-2), nal_ref_idc in AVC
  * write_pulldown_info - Write pulldown info in AU_Information
  * pic_struct - AVC pic_struct element - only used if write_pulldown_info set
+ *
+ * opaque - opaque pointer that libmpegts does nothing with
  */
 
 typedef struct
@@ -593,6 +595,8 @@ typedef struct
     int ref_pic_idc;
     int write_pulldown_info;
     int pic_struct;
+
+    void *opaque;
 } ts_frame_t;
 
 /* ts_write_frames
