@@ -285,7 +285,7 @@ ts_writer_t *ts_create_writer( void );
  * cbr - Pad to constant bitrate with null packets
  * ts_type - Type of transport stream to write
  * network_pid - PID of the network table (0 otherwise)
- * legacy_constraints - Comply with CableLabs legacy contraints in Section 7.3 of Content Encoding Profiles 3.0 Specification 
+ * legacy_constraints - Comply with CableLabs legacy contraints in Section 7.3 of Content Encoding Profiles 3.0 Specification
  *
  * retransmit periods in milliseconds
  *
@@ -445,7 +445,9 @@ int setup_dvb_subtitles( ts_writer_t *w, int pid, int has_dds, int num_subtitles
 
 /* ts_dvb_ttx_t
  * lang_code - ISO 639 Part 2 Language code
- * subtitling_type - see above #defines
+ * teletext_type - see above #defines
+ * teletext_magazine_number - self explanatory
+ * teletext_page_number - self explanatory
  */
 
 typedef struct
@@ -456,7 +458,7 @@ typedef struct
     int  teletext_page_number;
 } ts_dvb_ttx_t;
 
-int setup_dvb_teletext( ts_writer_t *w, int pid, int num_teletexts, ts_dvb_sub_t *teletexts );
+int setup_dvb_teletext( ts_writer_t *w, int pid, int num_teletexts, ts_dvb_ttx_t *teletexts );
 
 /* SDT
  *  */
@@ -551,7 +553,7 @@ int ts_setup_dtcp( ts_writer_t *w, uint8_t byte_1, uint8_t byte_2 );
  *
  * The duration of a video frame and associated audio frames must be as close as possible.
  * The duration of audio frames can either be slighly less, equal to (rare), or slightly greater than
- * the video frame duration - libmpegts can handle all three conditions. 
+ * the video frame duration - libmpegts can handle all three conditions.
  * There should be no more than one frame with a DTS larger than that of the associated video stream.
  *
  * The DTS of a given PID must be monotonically increasing. Interleaving of frames from different streams is allowed.
@@ -560,7 +562,7 @@ int ts_setup_dtcp( ts_writer_t *w, uint8_t byte_1, uint8_t byte_2 );
 /* ts_frame_t
  *
  * PID - Packet Identifier (i.e. which stream the payload is associated with)
- * 
+ *
  * DTS - Decode Time Stamp (in 90kHz clock ticks - maximum 30 bits)
  * PTS - Presentation Time Stamp (in 90kHz clock ticks - maximum 30 bits)
  * (PTS and DTS may have codec-specific meanings. See ISO 13818-1 for more information)

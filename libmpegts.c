@@ -583,7 +583,7 @@ int setup_dvb_subtitles( ts_writer_t *w, int pid, int has_dds, int num_subtitles
     return 0;
 }
 
-int setup_dvb_teletext( ts_writer_t *w, int pid, int num_teletexts, ts_dvb_sub_t *teletexts )
+int setup_dvb_teletext( ts_writer_t *w, int pid, int num_teletexts, ts_dvb_ttx_t *teletexts )
 {
     if( w->ts_type == TS_TYPE_BLU_RAY )
     {
