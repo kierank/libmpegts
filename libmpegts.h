@@ -423,7 +423,6 @@ int ts_setup_302m_stream( ts_writer_t *w, int pid, int bit_depth, int num_channe
  * subtitling_type - see above #defines
  * composition_page_id - composition page
  * ancillary_page_id - optional ancillary page (should be set to composition page otherwise)
- * has_dds - has display definition segment
  */
 
 typedef struct
@@ -434,7 +433,12 @@ typedef struct
     int  ancillary_page_id;
 } ts_dvb_sub_t;
 
-int setup_dvb_subtitles( ts_writer_t *w, int pid, int has_dds, int num_subtitles, ts_dvb_sub_t *subtitles );
+/* ts_setup_dvb_subtitles
+ *
+ * has_dds - has display definition segment
+ */
+
+int ts_setup_dvb_subtitles( ts_writer_t *w, int pid, int has_dds, int num_subtitles, ts_dvb_sub_t *subtitles );
 
 /* DVB Teletext */
 #define LIBMPEGTS_DVB_TTX_TYPE_INITIAL 0x01
@@ -458,7 +462,7 @@ typedef struct
     int  teletext_page_number;
 } ts_dvb_ttx_t;
 
-int setup_dvb_teletext( ts_writer_t *w, int pid, int num_teletexts, ts_dvb_ttx_t *teletexts );
+int ts_setup_dvb_teletext( ts_writer_t *w, int pid, int num_teletexts, ts_dvb_ttx_t *teletexts );
 
 /* SDT
  *  */
