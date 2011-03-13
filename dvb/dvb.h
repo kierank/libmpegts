@@ -55,6 +55,7 @@
 
 void write_aac_descriptor( bs_t *s, ts_int_stream_t *stream );
 void write_adaptation_field_data_descriptor( bs_t *s, uint8_t identifier );
+void write_dvb_subtitling_descriptor( bs_t *s, ts_int_stream_t *stream );
 void write_stream_identifier_descriptor( bs_t *s, uint8_t stream_identifier );
 void write_teletext_descriptor( bs_t *s, ts_int_stream_t *stream );
 

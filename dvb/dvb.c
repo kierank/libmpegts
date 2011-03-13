@@ -36,17 +36,21 @@ void write_adaptation_field_data_descriptor( bs_t *s, uint8_t identifier )
     bs_write( s, 8, identifier );             // adaptation_field_data_identifier
 }
 
-void write_dvb_subtitling_descriptor( bs_t *s )
+void write_dvb_subtitling_descriptor( bs_t *s, ts_int_stream_t *stream )
 {
-    // FIXME
+    ts_dvb_sub_t *subtitle;
+
     bs_write( s, 8, DVB_SUBTITLING_DESCRIPTOR_TAG ); // descriptor_tag
-    bs_write( s, 8, 0 );                             // descriptor_length
-    // FIXME multiple subtitles
-    for( int j = 0; j < 3; j++ )
-        bs_write( s, 8, 0 );                         // ISO_639_language_code
-    bs_write( s, 8, 0 );                             // subtitling_type
-    bs_write( s, 16, 0 );                            // composition_page_id
-    bs_write( s, 16, 0 );                            // ancillary_page_id
+    bs_write( s, 8, stream->num_dvb_sub * 8 );       // descriptor_length
+    for( int i = 0; i < stream->num_dvb_sub; i++ )
+    {
+        subtitle = &stream->dvb_sub_ctx[i];
+        for( int j = 0; j < 3; j++ )
+            bs_write( s, 8, subtitle->lang_code[j] );     // ISO_639_language_code
+        bs_write( s, 8, subtitle->subtitling_type );      // subtitling_type
+        bs_write( s, 16, subtitle->composition_page_id ); // composition_page_id
+        bs_write( s, 16, subtitle->ancillary_page_id );   // ancillary_page_id
+    }
 }
 
 void write_stream_identifier_descriptor( bs_t *s, uint8_t stream_identifier )
@@ -58,15 +62,19 @@ void write_stream_identifier_descriptor( bs_t *s, uint8_t stream_identifier )
 
 void write_teletext_descriptor( bs_t *s, ts_int_stream_t *stream )
 {
-    // FIXME
+    ts_dvb_ttx_t *teletext;
+
     bs_write( s, 8, DVB_TELETEXT_DESCRIPTOR_TAG ); // descriptor_tag
-    bs_write( s, 8, 5 );                           // descriptor_length
-    // FIXME multiple TTX
-    for( int j = 0; j < 3; j++ )
-        bs_write( s, 8, 0 );                       // ISO_639_language_code
-    bs_write( s, 5, 0 );                           // teletext_type
-    bs_write( s, 3, 0 );                           // teletext_magazine_number
-    bs_write( s, 8, 0 );                           // teletext_page_number
+    bs_write( s, 8, stream->num_dvb_ttx * 5 );     // descriptor_length
+    for( int i = 0; i < stream->num_dvb_ttx; i++ )
+    {
+        teletext = &stream->dvb_ttx_ctx[i];
+        for( int j = 0; j < 3; j++ )
+            bs_write( s, 8, teletext->lang_code[j] );         // ISO_639_language_code
+        bs_write( s, 5, teletext->teletext_type );            // teletext_type
+        bs_write( s, 3, teletext->teletext_magazine_number ); // teletext_magazine_number
+        bs_write( s, 8, teletext->teletext_page_number );     // teletext_page_number
+    }
 }
 
 /*

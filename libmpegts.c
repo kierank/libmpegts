@@ -677,6 +677,23 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             }
             program->video_dts = frames[i].dts;
         }
+        else if( stream->stream_format == LIBMPEGTS_DVB_SUB )
+        {
+            if( !stream->dvb_sub_ctx )
+            {
+               fprintf( stderr, "DVB subtitle stream needs additional information. Call ts_setup_dvb_subtitles \n" );
+               return -1;
+            }
+        }
+        else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
+        {
+            if( !stream->dvb_ttx_ctx )
+            {
+               fprintf( stderr, "DVB Teletext stream needs additional information. Call ts_setup_dvb_teletext \n" );
+               return -1;
+            }
+        }
+        // TODO more
 
         w->buffered_frames[i] = calloc( 1, sizeof(ts_int_pes_t) );
         if( !w->buffered_frames[i] )
@@ -1550,11 +1567,9 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
          else if( stream->stream_format == LIBMPEGTS_AUDIO_302M )
              write_registration_descriptor( &q, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "BSSD" );
          else if( stream->stream_format == LIBMPEGTS_DVB_SUB )
-         {
-         }
+             write_dvb_subtitling_descriptor( &q, stream );
          else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
-         {
-         }
+             write_teletext_descriptor( &q, stream );
          else if( stream->stream_format == LIBMPEGTS_ANCILLARY_RDD11 )
              write_registration_descriptor( &q, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "LU-A" );
          else if( stream->stream_format == LIBMPEGTS_ANCILLARY_2038 )
