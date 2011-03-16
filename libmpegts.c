@@ -72,19 +72,19 @@ static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, in
 static int eject_queued_pmt( ts_writer_t *w, ts_int_program_t *program, bs_t *s );
 static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *program, ts_int_pes_t *pes,
                                    int write_pcr, int flags, int stuffing, int discontinuity );
-static void write_pcr_empty( ts_writer_t *w, ts_int_program_t *program, int first );
+static int write_pcr_empty( ts_writer_t *w, ts_int_program_t *program, int first );
 
 /* Buffer management */
 static void add_to_buffer( buffer_t *buffer );
 static void drip_buffer( ts_writer_t *w, ts_int_program_t *program, int rx, buffer_t *buffer, double next_pcr );
 
 /* Tables */
-static void write_pat( ts_writer_t *w );
+static int write_pat( ts_writer_t *w );
 static int write_pmt( ts_writer_t *w, ts_int_program_t *program );
 
 static void write_timestamp( bs_t *s, uint64_t timestamp );
 static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_frame, ts_int_pes_t *out_pes );
-static void write_null_packet( ts_writer_t *w );
+static int write_null_packet( ts_writer_t *w );
 
 ts_writer_t *ts_create_writer( void )
 {
@@ -281,6 +281,11 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
     w->out.p_bitstream = calloc( 1, w->out.i_bitstream );
 
     if( !w->out.p_bitstream )
+        return -1;
+
+    w->pcr_list_alloced = 50000;
+    w->pcr_list = malloc( w->pcr_list_alloced * sizeof(int64_t) );
+    if( !w->pcr_list )
         return -1;
 
     return 0;
@@ -622,7 +627,7 @@ int ts_setup_dvb_teletext( ts_writer_t *w, int pid, int num_teletexts, ts_dvb_tt
     return 0;
 }
 
-int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t **out, int *len )
+int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t **out, int *len, int64_t **pcr_list )
 {
     ts_int_program_t *program = w->programs[0];
     ts_int_stream_t *stream;
@@ -637,6 +642,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
     /* earliest arrival time that the pes packet can arrive */
     int64_t pes_pcr = 0;
     int64_t cur_pcr = 0;
+
+    w->num_pcrs = 0;
 
     bs_init( s, w->out.p_bitstream, w->out.i_bitstream );
 
@@ -741,6 +748,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
     {
         out = NULL;
         *len = 0;
+        *pcr_list = NULL;
         return 0;
     }
 
@@ -749,7 +757,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
     if( !w->first_input )
     {
-        write_pcr_empty( w, program, 1 );
+        if( write_pcr_empty( w, program, 1 ) < 0 )
+            return -1;
         retransmit_psi_and_si( w, program, 1 );
         w->first_input = 1;
     }
@@ -851,8 +860,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                     /* piggyback pcr on this stream */
                     write_pcr = 1;
                 }
-                else
-                    write_pcr_empty( w, program, 0 );
+                else if( write_pcr_empty( w, program, 0 ) < 0 )
+                    return -1;
             }
 
             if( write_pcr )
@@ -880,7 +889,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 pes->cur_pos += pkt_bytes_left;
                 pes->bytes_left -= pkt_bytes_left;
                 add_to_buffer( &stream->tb );
-                increase_pcr( w, 1 );
+                if( increase_pcr( w, 1, 0 ) < 0 )
+                    return -1;
             }
             else
             {
@@ -908,7 +918,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 write_bytes(s, pes->cur_pos, pes->bytes_left );
                 pes->bytes_left = 0;
                 add_to_buffer( &stream->tb );
-                increase_pcr( w, 1 );
+                if( increase_pcr( w, 1, 0 ) < 0 )
+                    return -1;
             }
 
             if( pes->bytes_left <= pes->handover_bytes_left )
@@ -955,18 +966,18 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 }
             }
 
-            if( check_pcr( w, program ) )
-                write_pcr_empty( w, program, 0 );
+            if( check_pcr( w, program ) && write_pcr_empty( w, program, 0 ) < 0 )
+                return -1;
             retransmit_psi_and_si( w, program, 0 );
         }
         else /* no packets can be written */
         {
-            if( check_pcr( w, program ) )
-                write_pcr_empty( w, program, 0 );
-            else if( w->cbr )
-                write_null_packet( w );
-            else
-                increase_pcr( w, 1 ); /* write imaginary packet in capped vbr mode */
+            if( check_pcr( w, program ) && write_pcr_empty( w, program, 0 ) < 0 )
+                return -1;
+            else if( w->cbr && write_null_packet( w ) )
+                return -1;
+            else if( increase_pcr( w, 1, 1 ) < 0 )
+                return -1; /* write imaginary packet in capped vbr mode */
         }
     }
 
@@ -976,6 +987,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
     *out = w->out.p_bitstream;
     *len = bs_pos( s ) >> 3;
+    *pcr_list = w->pcr_list;
 
     // TODO if it's the final packet write blu-ray overflows
     // TODO count bits here
@@ -1006,6 +1018,9 @@ int ts_close_writer( ts_writer_t *w )
             free( w->programs[i]->streams[j] );
         }
     }
+
+    if( w->pcr_list )
+        free( w->pcr_list );
 
     if( w->out.p_bitstream )
         free( w->out.p_bitstream );
@@ -1207,8 +1222,12 @@ static int check_pcr( ts_writer_t *w, ts_int_program_t *program )
     return 0;
 }
 
-void increase_pcr( ts_writer_t *w, int num_packets )
+int increase_pcr( ts_writer_t *w, int num_packets, int imaginary )
 {
+    int64_t *temp;
+    int64_t mod = (int64_t)1 << 33;
+    int64_t pcr;
+
     // TODO do this for all programs
     ts_int_program_t *program = w->programs[0];
     double next_pcr = TS_START + (w->packets_written + num_packets) * 8.0 * TS_PACKET_SIZE / w->ts_muxrate;
@@ -1220,6 +1239,25 @@ void increase_pcr( ts_writer_t *w, int num_packets )
     }
 
     w->packets_written += num_packets;
+
+    if( !imaginary )
+    {
+        if( w->num_pcrs > w->pcr_list_alloced )
+        {
+            temp = realloc( w->pcr_list, w->pcr_list_alloced * 2 * sizeof(int64_t) );
+            if( !temp )
+               return -1;
+            w->pcr_list_alloced <<= 1;
+            w->pcr_list = temp;
+        }
+
+        pcr = (int64_t)((8.0 * w->packets_written * TS_PACKET_SIZE / w->ts_muxrate) * TS_CLOCK + 0.5);
+        pcr += TS_START * TS_CLOCK;
+
+        w->pcr_list[w->num_pcrs++] = pcr % mod;
+    }
+
+    return 0;
 }
 
 /**** Buffer management ****/
@@ -1256,7 +1294,7 @@ static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, in
     {
         /* Although it is not in line with the mux strategy it is good practice to write PAT and PMT together */
         w->last_pat = (uint64_t)(cur_pcr * 27000000LL);
-        write_pat( w );
+        write_pat( w );          // FIXME handle failure
         write_pmt( w, program ); // FIXME handle failure
     }
 
@@ -1282,7 +1320,8 @@ static int eject_queued_pmt( ts_writer_t *w, ts_int_program_t *program, bs_t *s 
     program->num_queued_pmt--;
 
     add_to_buffer( &w->tb );
-    increase_pcr( w, 1 );
+    if( increase_pcr( w, 1, 0 ) < 0 )
+        return -1;
 
     return 0;
 };
@@ -1294,9 +1333,7 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
     int start = bs_pos( s );
     uint8_t temp[512], temp2[256];
     bs_t q, r;
-    uint64_t pcr;
-
-    pcr = (int64_t)((8.0 * ( w->packets_written * TS_PACKET_SIZE + 7.0) / w->ts_muxrate) * TS_CLOCK + 0.5);
+    int64_t pcr = (int64_t)((8.0 * ( w->packets_written * TS_PACKET_SIZE + 7.0) / w->ts_muxrate) * TS_CLOCK + 0.5);
     pcr += TS_START * TS_CLOCK;
 
     private_data_flag = write_dvb_au = random_access = priority = 0;
@@ -1369,7 +1406,7 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
     return (bs_pos( s ) - start) >> 3;
 }
 
-static void write_pcr_empty( ts_writer_t *w, ts_int_program_t *program, int first )
+static int write_pcr_empty( ts_writer_t *w, ts_int_program_t *program, int first )
 {
     bs_t *s = &w->out.bs;
 
@@ -1379,11 +1416,14 @@ static void write_pcr_empty( ts_writer_t *w, ts_int_program_t *program, int firs
     write_adaptation_field( w, s, program, NULL, 1, 1, stuffing, discontinuity );
 
     add_to_buffer( &program->pcr_stream->tb );
-    increase_pcr( w, 1 );
+    if( increase_pcr( w, 1, 0 ) < 0 )
+        return -1;
+
+    return 0;
 }
 
 /**** PSI ****/
-static void write_pat( ts_writer_t *w )
+static int write_pat( ts_writer_t *w )
 {
     int start;
     bs_t *s = &w->out.bs;
@@ -1428,7 +1468,10 @@ static void write_pat( ts_writer_t *w )
     // -40 to include header and pointer field
     write_padding( s, start - 40 );
     add_to_buffer( &w->tb );
-    increase_pcr( w, 1 );
+    if( increase_pcr( w, 1, 0 ) < 0 )
+        return -1;
+
+    return 0;
 }
 
 static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
@@ -1608,7 +1651,8 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
 
     write_padding( s, start );
     add_to_buffer( &w->tb );
-    increase_pcr( w, 1 );
+    if( increase_pcr( w, 1, 0 ) < 0 )
+        return -1;
 
     int pos = MIN( bytes_left, length );
     length -= pos;
@@ -1650,7 +1694,7 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
 }
 
 /* DVB / Blu-Ray Service Information */
-static void write_sit( ts_writer_t *w )
+static int write_sit( ts_writer_t *w )
 {
     int start;
     int len = 0; // FIXME
@@ -1694,7 +1738,10 @@ static void write_sit( ts_writer_t *w )
 
     // -40 to include header and pointer field
     write_padding( s, start - 40 );
-    increase_pcr( w, 1 );
+    if( increase_pcr( w, 1, 0 ) < 0 )
+        return -1;
+
+    return 0;
 }
 
 static void write_timestamp( bs_t *s, uint64_t timestamp )
@@ -1804,7 +1851,7 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
     return header_size;
 }
 
-static void write_null_packet( ts_writer_t *w )
+static int write_null_packet( ts_writer_t *w )
 {
     int start;
     int cc = 0;
@@ -1815,7 +1862,10 @@ static void write_null_packet( ts_writer_t *w )
     write_packet_header( w, s, 0, NULL_PID, PAYLOAD_ONLY, &cc );
     write_padding( s, start );
 
-    increase_pcr( w, 1 );
+    if( increase_pcr( w, 1, 0 ) < 0 )
+        return -1;
+
+    return 0;
 }
 
 ts_int_stream_t *find_stream( ts_writer_t *w, int pid )

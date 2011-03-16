@@ -97,7 +97,7 @@ static void write_service_descriptor( bs_t *s )
 */
 
 /* DVB Service Information */
-void write_nit( ts_writer_t *w )
+int write_nit( ts_writer_t *w )
 {
     int start;
 
@@ -139,7 +139,10 @@ void write_nit( ts_writer_t *w )
 
     // -40 to include header and pointer field
     write_padding( s, start - 40 );
-    increase_pcr( w, 1 );
+    if( increase_pcr( w, 1, 0 ) < 0 )
+        return -1;
+
+    return 0;
 }
 #if 0
 /* "The SDT contains data describing the services in the system e.g. names of services, the service provider, etc" */

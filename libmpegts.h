@@ -32,7 +32,7 @@
 
 /**** Version ****/
 #define LIBMPEGTS_API_VERSION_MAJOR 0
-#define LIBMPEGTS_API_VERSION_MINOR 1
+#define LIBMPEGTS_API_VERSION_MINOR 2
 
 /**** Stream Formats ****/
 /* Generic */
@@ -607,10 +607,13 @@ typedef struct
 
 /* ts_write_frames
  *
+ * libmpegts buffers one frame so the last set of packets can be output by setting num_frames = 0.
+ *
+ * pcr_list contains an array of pcr values, one for each output packet. The array length is len/188.
  *
  */
 
-int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t **out, int *len );
+int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t **out, int *len, int64_t **pcr_list );
 
 /* INACTIVE
  *

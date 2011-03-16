@@ -300,6 +300,10 @@ struct ts_writer_t
     int num_buffered_frames;
     ts_int_pes_t **buffered_frames;
 
+    int num_pcrs;
+    int pcr_list_alloced;
+    int64_t *pcr_list;
+
     /* system control */
     buffer_t tb;     /* transport buffer */
     buffer_t main_b; /* main buffer */
@@ -340,7 +344,7 @@ void write_packet_header( ts_writer_t *w, bs_t *s, int start, int pid, int adapt
 void write_registration_descriptor( bs_t *s, int descriptor_tag, int descriptor_length, char *format_id );
 void write_crc( bs_t *s, int start );
 int write_padding( bs_t *s, int start );
-void increase_pcr( ts_writer_t *w, int num_packets );
+int increase_pcr( ts_writer_t *w, int num_packets, int imaginary );
 ts_int_stream_t *find_stream( ts_writer_t *w, int pid );
 
 #endif
