@@ -972,10 +972,16 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         }
         else /* no packets can be written */
         {
-            if( check_pcr( w, program ) && write_pcr_empty( w, program, 0 ) < 0 )
-                return -1;
-            else if( w->cbr && write_null_packet( w ) )
-                return -1;
+            if( check_pcr( w, program ) )
+            {
+                if( write_pcr_empty( w, program, 0 ) < 0 )
+                    return -1;
+            }
+            else if( w->cbr )
+            {
+                if( write_null_packet( w ) < 0 )
+                    return -1;
+            }
             else if( increase_pcr( w, 1, 1 ) < 0 )
                 return -1; /* write imaginary packet in capped vbr mode */
         }
