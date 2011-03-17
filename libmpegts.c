@@ -617,7 +617,7 @@ int ts_setup_dvb_teletext( ts_writer_t *w, int pid, int num_teletexts, ts_dvb_tt
     if( !stream->dvb_ttx_ctx )
         return -1;
 
-    stream->num_dvb_sub = num_teletexts;
+    stream->num_dvb_ttx = num_teletexts;
     memcpy( stream->dvb_ttx_ctx, teletexts, num_teletexts * sizeof(ts_dvb_ttx_t) );
 
     stream->tb.buf_size = TELETEXT_T_BS;
