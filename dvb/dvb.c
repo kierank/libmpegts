@@ -18,6 +18,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02111, USA.
  *****************************************************************************/
 
+#include <time.h>
+
 #include "../common.h"
 #include "dvb.h"
 
@@ -205,9 +207,9 @@ void write_sdt( ts_writer_t *w )
     write_padding( s, start - 40 );
     increase_pcr( w, 1 );
 }
-
+#endif
+#if 0
 // FIXME
-
 // "the EIT contains data concerning events or programmes such as event name, start time, duration, etc.; "
 void write_eit( ts_writer_t *w )
 {
@@ -228,12 +230,31 @@ void write_eit( ts_writer_t *w )
     bs_write( s, 12, len );    // section_length
 
 }
-// "the TDT gives information relating to the present time and date. This information is given in a separate
-// table due to the frequent updating of this information. "
-void write_tdt( ts_writer_t *w )
-{
-    uint64_t start;
+#endif
 
+static void write_utc_time( bs_t *s )
+{
+    int l, mjd;
+    time_t cur_time;
+    struct tm *now;
+
+    /* MJD conversions in Annex C of ETSI EN 300 468 */
+    cur_time = time( NULL );
+    now = gmtime( &cur_time );
+
+    l = ( ( now->tm_mon + 1 == 1 ) || ( now->tm_mon + 1 == 2 ) ) ? 1 : 0;
+    mjd = 14956 + now->tm_mday + (int)((now->tm_year - l) * 365.25) + (int)((now->tm_mon + 1 + 1 + l * 12) * 30.6001);
+
+    bs_write( s, 8, mjd >> 8 );
+    bs_write( s, 8, mjd & 0xff );
+    bs_write( s, 8, (now->tm_hour / 10) << 4 | (now->tm_hour % 10) ); // hours
+    bs_write( s, 8, (now->tm_min / 10) << 4 | (now->tm_min % 10) );   // minutes
+    bs_write( s, 8, (now->tm_sec / 10) << 4 | (now->tm_sec % 10) );   // seconds
+}
+
+int write_tdt( ts_writer_t *w )
+{
+    int start;
     bs_t *s = &w->out.bs;
 
     write_packet_header( w, s, 1, TDT_PID, PAYLOAD_ONLY, &w->tdt->cc );
@@ -243,16 +264,20 @@ void write_tdt( ts_writer_t *w )
     bs_write( s, 8, TDT_TID ); // table_id
     bs_write1( s, 0 );         // section_syntax_indicator
     bs_write1( s, 1 );         // reserved_future_use
-    bs_write( s, 2, 0x03);     // reserved
-    bs_write( s, 12, 0x05);    // section_length
+    bs_write( s, 2, 0x03 );    // reserved
+    bs_write( s, 12, 0x05 );   // section_length
 
-    // FIXME
+    write_utc_time( s );
 
-    bs_write( s, 4, & 0x0f ); //
+    // -40 to include header and pointer field
+    write_padding( s, start - 40 );
 
-    increase_pcr( w, 1 );
+    if( increase_pcr( w, 1, 0 ) < 0 )
+        return -1;
+
+    return 0;
 }
-#endif
+
 // TODO TOT
 
 void write_dvb_au_information( bs_t *s, ts_int_pes_t *pes )

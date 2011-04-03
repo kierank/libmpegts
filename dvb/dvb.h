@@ -61,7 +61,7 @@ void write_teletext_descriptor( bs_t *s, ts_int_stream_t *stream );
 int write_nit( ts_writer_t *w );
 //void write_sdt( ts_writer_t *w );
 //void write_eit( ts_writer_t *w );
-//void write_tdt( ts_writer_t *w );
+int write_tdt( ts_writer_t *w );
 
 void write_dvb_au_information( bs_t *s, ts_int_pes_t *pes );
 #endif
