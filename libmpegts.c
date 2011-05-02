@@ -29,7 +29,7 @@
 #include "crc/crc.h"
 #include <math.h>
 
-static int steam_type_table[26][2] =
+static const int steam_type_table[27][2] =
 {
     { LIBMPEGTS_VIDEO_MPEG2, VIDEO_MPEG2 },
     { LIBMPEGTS_VIDEO_AVC,   VIDEO_AVC },
@@ -54,6 +54,7 @@ static int steam_type_table[26][2] =
     { LIBMPEGTS_AUDIO_302M,  PRIVATE_DATA },
     { LIBMPEGTS_DVB_SUB,     PRIVATE_DATA },
     { LIBMPEGTS_DVB_TELETEXT,    PRIVATE_DATA },
+    { LIBMPEGTS_DVB_VBI,         PRIVATE_DATA },
     { LIBMPEGTS_ANCILLARY_RDD11, PRIVATE_DATA },
     { LIBMPEGTS_ANCILLARY_2038,  PRIVATE_DATA },
     { 0 },
@@ -627,6 +628,66 @@ int ts_setup_dvb_teletext( ts_writer_t *w, int pid, int num_teletexts, ts_dvb_tt
     return 0;
 }
 
+int ts_setup_dvb_vbi( ts_writer_t *w, int pid, int num_vbis, ts_dvb_vbi_t *vbis )
+{
+    if( w->ts_type == TS_TYPE_BLU_RAY )
+    {
+        fprintf( stderr, "VBI not allowed in Blu-Ray\n" );
+        return -1;
+    }
+
+    ts_int_stream_t *stream = find_stream( w, pid );
+
+    if( !stream )
+    {
+        fprintf( stderr, "Invalid PID\n" );
+        return -1;
+    }
+
+    if( !vbis || !num_vbis )
+    {
+        fprintf( stderr, "Invalid Number of VBI services\n" );
+        return -1;
+    }
+
+    if( stream->dvb_vbi_ctx )
+        free( stream->dvb_vbi_ctx );
+
+    stream->dvb_vbi_ctx = calloc( 1, num_vbis * sizeof(ts_dvb_vbi_t) );
+    if( !stream->dvb_vbi_ctx )
+        return -1;
+
+    stream->num_dvb_vbi = num_vbis;
+    memcpy( stream->dvb_vbi_ctx, vbis, num_vbis * sizeof(ts_dvb_vbi_t) );
+
+    for( int i = 0; i < stream->num_dvb_vbi; i++ )
+    {
+        stream->dvb_vbi_ctx[i].lines = calloc( 1, vbis[i].num_lines * sizeof(ts_dvb_vbi_line_t) );
+        if( !stream->dvb_vbi_ctx[i].lines )
+            goto fail;
+        memcpy( stream->dvb_vbi_ctx[i].lines, vbis[i].lines, vbis[i].num_lines * sizeof(ts_dvb_vbi_line_t) );
+    }
+
+    /* VBI uses teletext T-STD */
+    stream->tb.buf_size = TELETEXT_T_BS;
+    stream->rx = TELETEXT_RXN;
+    stream->mb.buf_size = TELETEXT_BTTX;
+
+    return 0;
+
+fail:
+
+    for( int i = 0; i < stream->num_dvb_vbi; i++ )
+    {
+        if( stream->dvb_vbi_ctx[i].lines )
+            free( stream->dvb_vbi_ctx[i].lines );
+    }
+
+    free( stream->dvb_vbi_ctx );
+
+    return 0;
+}
+
 int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t **out, int *len, int64_t **pcr_list )
 {
     ts_int_program_t *program = w->programs[0];
@@ -697,6 +758,14 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             if( !stream->dvb_ttx_ctx )
             {
                fprintf( stderr, "DVB Teletext stream needs additional information. Call ts_setup_dvb_teletext \n" );
+               return -1;
+            }
+        }
+        else if( stream->stream_format == LIBMPEGTS_DVB_VBI )
+        {
+            if( !stream->dvb_vbi_ctx )
+            {
+               fprintf( stderr, "DVB VBI stream needs additional information. Call ts_setup_dvb_vbi \n" );
                return -1;
             }
         }
@@ -1618,7 +1687,13 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
          else if( stream->stream_format == LIBMPEGTS_DVB_SUB )
              write_dvb_subtitling_descriptor( &q, stream );
          else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
-             write_teletext_descriptor( &q, stream );
+             write_teletext_descriptor( &q, stream, 0 );
+         else if( stream->stream_format == LIBMPEGTS_DVB_VBI )
+         {
+             write_vbi_descriptor( &q, stream );
+             if( stream->num_dvb_ttx )
+                 write_teletext_descriptor( &q, stream, 1 );
+         }
          else if( stream->stream_format == LIBMPEGTS_ANCILLARY_RDD11 )
              write_registration_descriptor( &q, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "LU-A" );
          else if( stream->stream_format == LIBMPEGTS_ANCILLARY_2038 )
@@ -1812,7 +1887,7 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
     bs_write1( &q, 0 );      // PES_CRC_flag
     bs_write1( &q, 0 );      // PES_extension_flag
 
-    if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
+    if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT || stream->stream_format == LIBMPEGTS_DVB_VBI )
         bs_write( &q, 8, 0x24 ); // PES_header_data_length
     else if( same_timestamps )
         bs_write( &q, 8, 0x05 ); // PES_header_data_length (PTS only)
@@ -1829,8 +1904,8 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
         write_timestamp( &q, out_pes->dts % mod ); // DTS
     }
 
-    /* TTX requires extra stuffing */
-    if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
+    /* TTX and VBI require extra stuffing */
+    if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT || stream->stream_format == LIBMPEGTS_DVB_VBI )
     {
         int num_stuffing = 45 - (bs_pos( &q ) >> 3);
         for( int i = 0; i < num_stuffing; i++ )

@@ -22,6 +22,8 @@
 #define LIBMPEGTS_DVB_H
 
 /* Descriptor Tags */
+#define DVB_VBI_DESCRIPTOR_TAG        0x45
+#define DVB_VBI_TELETEXT_DESCRIPTOR_TAG 0x46
 #define DVB_SERVICE_DESCRIPTOR_TAG    0x48
 #define DVB_STREAM_IDENTIFIER_DESCRIPTOR_TAG 0x52
 #define DVB_TELETEXT_DESCRIPTOR_TAG   0x56
@@ -56,7 +58,8 @@ void write_aac_descriptor( bs_t *s, ts_int_stream_t *stream );
 void write_adaptation_field_data_descriptor( bs_t *s, uint8_t identifier );
 void write_dvb_subtitling_descriptor( bs_t *s, ts_int_stream_t *stream );
 void write_stream_identifier_descriptor( bs_t *s, uint8_t stream_identifier );
-void write_teletext_descriptor( bs_t *s, ts_int_stream_t *stream );
+void write_teletext_descriptor( bs_t *s, ts_int_stream_t *stream, int vbi );
+void write_vbi_descriptor( bs_t *s, ts_int_stream_t *stream );
 
 int write_nit( ts_writer_t *w );
 //void write_sdt( ts_writer_t *w );

@@ -62,11 +62,15 @@ void write_stream_identifier_descriptor( bs_t *s, uint8_t stream_identifier )
     bs_write( s, 8, stream_identifier ); // component_tag
 }
 
-void write_teletext_descriptor( bs_t *s, ts_int_stream_t *stream )
+void write_teletext_descriptor( bs_t *s, ts_int_stream_t *stream, int vbi )
 {
     ts_dvb_ttx_t *teletext;
 
-    bs_write( s, 8, DVB_TELETEXT_DESCRIPTOR_TAG ); // descriptor_tag
+    if( vbi )
+        bs_write( s, 8, DVB_VBI_TELETEXT_DESCRIPTOR_TAG ); // descriptor_tag
+    else
+        bs_write( s, 8, DVB_TELETEXT_DESCRIPTOR_TAG ); // descriptor_tag
+
     bs_write( s, 8, stream->num_dvb_ttx * 5 );     // descriptor_length
     for( int i = 0; i < stream->num_dvb_ttx; i++ )
     {
@@ -77,6 +81,36 @@ void write_teletext_descriptor( bs_t *s, ts_int_stream_t *stream )
         bs_write( s, 3, teletext->teletext_magazine_number ); // teletext_magazine_number
         bs_write( s, 8, teletext->teletext_page_number );     // teletext_page_number
     }
+}
+
+void write_vbi_descriptor( bs_t *s, ts_int_stream_t *stream )
+{
+    bs_t q;
+    uint8_t temp[1024];
+    ts_dvb_vbi_t *vbi;
+
+    bs_init( &q, temp, 1024 );
+
+    bs_write( s, 8, DVB_VBI_DESCRIPTOR_TAG ); // descriptor_tag
+
+    for( int i = 0; i < stream->num_dvb_ttx; i++ )
+    {
+        vbi = &stream->dvb_vbi_ctx[i];
+
+        bs_write( &q, 8, vbi->data_service_id ); // data_service_id
+        bs_write( &q, 8, vbi->num_lines  );      // data_service_descriptor_length
+
+        for( int j = 0; j < vbi->num_lines; j++ )
+        {
+            bs_write( &q, 2, 0x3 ); // reserved
+            bs_write( &q, 1, vbi->lines[j].field_parity ); // field_parity
+            bs_write( &q, 5, vbi->lines[j].line_offset  ); // line_offset
+        }
+    }
+
+    bs_flush( &q );
+    bs_write( s, 8, bs_pos( &q ) >> 3 ); // descriptor_length
+    write_bytes( s, temp, bs_pos( &q ) >> 3 );
 }
 
 /*

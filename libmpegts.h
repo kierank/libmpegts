@@ -66,6 +66,7 @@
 /* DVB Stream Formats */
 #define LIBMPEGTS_DVB_SUB      128
 #define LIBMPEGTS_DVB_TELETEXT 129
+#define LIBMPEGTS_DVB_VBI      130
 
 /* Misc */
 
@@ -463,6 +464,37 @@ typedef struct
 } ts_dvb_ttx_t;
 
 int ts_setup_dvb_teletext( ts_writer_t *w, int pid, int num_teletexts, ts_dvb_ttx_t *teletexts );
+
+/* ts_dvb_vbi_t
+ * field_parity - 1 for first field (odd), 0 for second field (even)
+ * line_offset - line number on which data is presented if it is transcoded into the VBI
+ */
+typedef struct
+{
+    int field_parity;
+    int line_offset;
+} ts_dvb_vbi_line_t;
+
+#define LIBMPEGTS_DVB_VBI_DATA_SERVICE_ID_TTX 0x01 /* Requires call to ts_setup_dvb_teletext */
+#define LIBMPEGTS_DVB_VBI_DATA_SERVICE_ID_INVERTED_TTX 0x02
+#define LIBMPEGTS_DVB_VBI_DATA_SERVICE_ID_VPS 0x04
+#define LIBMPEGTS_DVB_VBI_DATA_SERVICE_ID_WSS 0x05
+#define LIBMPEGTS_DVB_VBI_DATA_SERVICE_ID_CC  0x06
+#define LIBMPEGTS_DVB_VBI_DATA_SERVICE_ID_MONO_SAMPLES 0x07
+
+/* ts_dvb_vbi_t
+ * data_service_id - see above #defines
+ * lines - one ts_dvb_vbi_line_t per line
+ */
+
+typedef struct
+{
+    int data_service_id;
+    int num_lines;
+    ts_dvb_vbi_line_t *lines;
+} ts_dvb_vbi_t;
+
+int ts_setup_dvb_vbi( ts_writer_t *w, int pid, int num_vbis, ts_dvb_vbi_t *vbis );
 
 /* SDT
  *  */

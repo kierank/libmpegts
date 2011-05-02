@@ -174,6 +174,9 @@ typedef struct
     int                     num_dvb_ttx;
     ts_dvb_ttx_t            *dvb_ttx_ctx;
 
+    int                     num_dvb_vbi;
+    ts_dvb_vbi_t            *dvb_vbi_ctx;
+
     int num_channels;
     int max_frame_size;
 
