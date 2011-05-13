@@ -668,10 +668,18 @@ int ts_setup_dvb_vbi( ts_writer_t *w, int pid, int num_vbis, ts_dvb_vbi_t *vbis 
         memcpy( stream->dvb_vbi_ctx[i].lines, vbis[i].lines, vbis[i].num_lines * sizeof(ts_dvb_vbi_line_t) );
     }
 
-    /* VBI uses teletext T-STD */
-    stream->tb.buf_size = TELETEXT_T_BS;
-    stream->rx = TELETEXT_RXN;
-    stream->mb.buf_size = TELETEXT_BTTX;
+    if( w->ts_type == TS_TYPE_CABLELABS || w->ts_type == TS_TYPE_ATSC )
+    {
+        stream->rx = SCTE_VBI_RXN;
+        stream->mb.buf_size = SCTE_VBI_MB_SIZE;
+    }
+    else
+    {
+        /* DVB-VBI uses teletext T-STD */
+        stream->tb.buf_size = TELETEXT_T_BS;
+        stream->rx = TELETEXT_RXN;
+        stream->mb.buf_size = TELETEXT_BTTX;
+    }
 
     return 0;
 
