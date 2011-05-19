@@ -475,12 +475,20 @@ typedef struct
     int line_offset;
 } ts_dvb_vbi_line_t;
 
+/* DVB service-ids */
 #define LIBMPEGTS_DVB_VBI_DATA_SERVICE_ID_TTX 0x01 /* Requires call to ts_setup_dvb_teletext */
 #define LIBMPEGTS_DVB_VBI_DATA_SERVICE_ID_INVERTED_TTX 0x02
 #define LIBMPEGTS_DVB_VBI_DATA_SERVICE_ID_VPS 0x04
 #define LIBMPEGTS_DVB_VBI_DATA_SERVICE_ID_WSS 0x05
 #define LIBMPEGTS_DVB_VBI_DATA_SERVICE_ID_CC  0x06
 #define LIBMPEGTS_DVB_VBI_DATA_SERVICE_ID_MONO_SAMPLES 0x07
+
+/* SCTE-127 service-ids */
+#define LIBMPEGTS_DVB_VBI_DATA_SERVICE_ID_VITC 0xf7
+#define LIBMPEGTS_DVB_VBI_DATA_SERVICE_ID_COPY_PROTECTION 0xf9
+#define LIBMPEGTS_DVB_VBI_DATA_SERVICE_ID_TVG2X 0xfb
+#define LIBMPEGTS_DVB_VBI_DATA_SERVICE_ID_NABTS 0xfc
+#define LIBMPEGTS_DVB_VBI_DATA_SERVICE_ID_AMOL_48_96 0xfe
 
 /* ts_dvb_vbi_t
  * data_service_id - see above #defines
