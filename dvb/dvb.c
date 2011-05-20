@@ -93,7 +93,7 @@ void write_vbi_descriptor( bs_t *s, ts_int_stream_t *stream )
 
     bs_write( s, 8, DVB_VBI_DESCRIPTOR_TAG ); // descriptor_tag
 
-    for( int i = 0; i < stream->num_dvb_ttx; i++ )
+    for( int i = 0; i < stream->num_dvb_vbi; i++ )
     {
         vbi = &stream->dvb_vbi_ctx[i];
 
