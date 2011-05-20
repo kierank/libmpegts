@@ -886,11 +886,19 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             if( !pes || cur_pes[i]->dts < pes->dts )
             {
                 stream = cur_pes[i]->stream;
+
                 /* Teletext is special because data can only stay in the buffer for 40ms */
                 if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
                     pes_pcr = (cur_pes[i]->dts - 3600) * 300;
                 else if( stream->stream_format == LIBMPEGTS_DVB_SUB )
-                    pes_pcr = 0;
+                    pes_pcr = 0; /* FIXME: is this right? */
+                else if( stream->stream_format == LIBMPEGTS_DVB_VBI && ( w->ts_type == TS_TYPE_CABLELABS || w->ts_type == TS_TYPE_ATSC ) )
+                {
+                    /* SCTE-127 VBI is always in terms of NTSC */
+                    pes_pcr = (cur_pes[i]->dts - 3003) * 300;
+                }
+                else if( stream->stream_format == LIBMPEGTS_DVB_VBI )
+                    pes_pcr = (cur_pes[i]->dts - 3600) * 300;
                 else
                     pes_pcr = (cur_pes[i]->dts - stream->max_frame_size) * 300; /* earliest that a frame can arrive */
 
