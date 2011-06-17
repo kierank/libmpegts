@@ -243,6 +243,8 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         else if( cur_stream->stream_format == LIBMPEGTS_AUDIO_AC3 || cur_stream->stream_format == LIBMPEGTS_AUDIO_EAC3 )
         {
             cur_stream->rx = MISC_AUDIO_RXN;
+            /* The spec is not at all clear whether E-AC3 uses these models as well.
+	     * Let's assume nobody will send ultra high bitrate E-AC3 */
             cur_stream->mb.buf_size = w->ts_type == TS_TYPE_ATSC || w->ts_type == TS_TYPE_CABLELABS ? AC3_BS_ATSC : AC3_BS_DVB;
         }
 
@@ -685,6 +687,8 @@ int ts_setup_dvb_vbi( ts_writer_t *w, int pid, int num_vbis, ts_dvb_vbi_t *vbis 
 
 fail:
 
+    fprintf( stderr, "Malloc failed\n" );
+
     for( int i = 0; i < stream->num_dvb_vbi; i++ )
     {
         if( stream->dvb_vbi_ctx[i].lines )
@@ -693,7 +697,7 @@ fail:
 
     free( stream->dvb_vbi_ctx );
 
-    return 0;
+    return -1;
 }
 
 int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t **out, int *len, int64_t **pcr_list )
@@ -1688,12 +1692,8 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
              else
                  write_ac3_descriptor( w, &q, 0 );
          }
-         else if( stream->stream_format == LIBMPEGTS_AUDIO_EAC3 ||
-                  stream->stream_format == LIBMPEGTS_AUDIO_EAC3_SECONDARY )
-         {
-             write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "AC-3" );
+         else if( stream->stream_format == LIBMPEGTS_AUDIO_EAC3 || stream->stream_format == LIBMPEGTS_AUDIO_EAC3_SECONDARY )
              write_ac3_descriptor( w, &q, 1 );
-         }
          else if( stream->stream_format == LIBMPEGTS_AUDIO_DTS )
          {
              // TODO

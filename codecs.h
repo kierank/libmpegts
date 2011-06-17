@@ -101,7 +101,6 @@ const aac_buffer_t aac_buffers[] =
     { 0 },
 };
 
-/** AC3 **/
 /* AC3 buffer sizes */
 #define AC3_BS_ATSC         2592*8
 #define AC3_BS_DVB          5696*8
