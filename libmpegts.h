@@ -650,6 +650,7 @@ typedef struct
  * libmpegts buffers one frame so the last set of packets can be output by setting num_frames = 0.
  *
  * pcr_list contains an array of pcr values, one for each output packet. The array length is len/188.
+ * NOTE: This PCR list does not wrap around
  *
  */
 

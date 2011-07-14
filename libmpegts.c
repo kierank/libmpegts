@@ -1349,7 +1349,7 @@ int increase_pcr( ts_writer_t *w, int num_packets, int imaginary )
         pcr = (int64_t)((8.0 * w->packets_written * TS_PACKET_SIZE / w->ts_muxrate) * TS_CLOCK + 0.5);
         pcr += TS_START * TS_CLOCK;
 
-        w->pcr_list[w->num_pcrs++] = pcr % mod;
+        w->pcr_list[w->num_pcrs++] = pcr;
     }
 
     return 0;
