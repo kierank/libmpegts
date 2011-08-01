@@ -930,7 +930,6 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         if( pes )
         {
             stream = pes->stream;
-            pes_pcr = pes->dts - stream->max_frame_size; /* earliest that a frame can arrive */
             pes_start = pes->data == pes->cur_pos; /* flag if packet contains pes header */
 
             // FIXME complain less
