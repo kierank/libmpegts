@@ -1922,7 +1922,8 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
     /* TTX and VBI require extra stuffing */
     if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT || stream->stream_format == LIBMPEGTS_DVB_VBI )
     {
-        int num_stuffing = 45 - (bs_pos( &q ) >> 3);
+        /* Total PES header is 45 bytes but don't count 6 bytes for the startcode, stream_id and length */
+        int num_stuffing = 45 - 6 - (bs_pos( &q ) >> 3);
         for( int i = 0; i < num_stuffing; i++ )
             bs_write( &q, 8, 0xff );
     }
