@@ -666,7 +666,19 @@ int ts_setup_dvb_vbi( ts_writer_t *w, int pid, int num_vbis, ts_dvb_vbi_t *vbis 
     {
         stream->dvb_vbi_ctx[i].lines = calloc( 1, vbis[i].num_lines * sizeof(ts_dvb_vbi_line_t) );
         if( !stream->dvb_vbi_ctx[i].lines )
-            goto fail;
+        {
+            fprintf( stderr, "Malloc failed\n" );
+
+            for( int j = 0; i < stream->num_dvb_vbi; j++ )
+            {
+                if( stream->dvb_vbi_ctx[j].lines )
+                    free( stream->dvb_vbi_ctx[j].lines );
+            }
+
+            free( stream->dvb_vbi_ctx );
+
+            return -1;
+        }
         memcpy( stream->dvb_vbi_ctx[i].lines, vbis[i].lines, vbis[i].num_lines * sizeof(ts_dvb_vbi_line_t) );
     }
 
@@ -684,20 +696,6 @@ int ts_setup_dvb_vbi( ts_writer_t *w, int pid, int num_vbis, ts_dvb_vbi_t *vbis 
     }
 
     return 0;
-
-fail:
-
-    fprintf( stderr, "Malloc failed\n" );
-
-    for( int i = 0; i < stream->num_dvb_vbi; i++ )
-    {
-        if( stream->dvb_vbi_ctx[i].lines )
-            free( stream->dvb_vbi_ctx[i].lines );
-    }
-
-    free( stream->dvb_vbi_ctx );
-
-    return -1;
 }
 
 int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t **out, int *len, int64_t **pcr_list )
