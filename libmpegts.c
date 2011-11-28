@@ -86,7 +86,7 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program );
 static void write_timestamp( bs_t *s, uint64_t timestamp );
 static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_frame, ts_int_pes_t *out_pes );
 static int write_null_packet( ts_writer_t *w );
-static int64_t get_pcr( ts_writer_t *w );
+static int64_t get_pcr( ts_writer_t *w, double offset );
 
 ts_writer_t *ts_create_writer( void )
 {
@@ -879,7 +879,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
         // FIXME at low bitrates this might need tweaking
 
-        cur_pcr = (int64_t)(((double)w->packets_written * 8.0 * TS_PACKET_SIZE * TS_CLOCK / w->ts_muxrate) + 0.5);
+        cur_pcr = get_pcr( w, 0 );
         cur_pcr += TS_CLOCK * TS_START;
 
         /* Check all the non-video packets first */
@@ -1427,7 +1427,7 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
     int start = bs_pos( s );
     uint8_t temp[512], temp2[256];
     bs_t q, r;
-    int64_t pcr = get_pcr( w );
+    int64_t pcr = get_pcr( w, 7 ); /* 7 bytes until end of PCR field */
     pcr += TS_START * TS_CLOCK;
 
     private_data_flag = write_dvb_au = random_access = priority = 0;
@@ -1975,7 +1975,7 @@ ts_int_stream_t *find_stream( ts_writer_t *w, int pid )
     return NULL;
 }
 
-static int64_t get_pcr( ts_writer_t *w )
+static int64_t get_pcr( ts_writer_t *w, double offset )
 {
-    return (int64_t)((8.0 * ( w->packets_written * TS_PACKET_SIZE + 7.0) / w->ts_muxrate) * TS_CLOCK + 0.5);
+    return (int64_t)((8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) * TS_CLOCK + 0.5);
 }
