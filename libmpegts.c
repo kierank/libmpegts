@@ -727,7 +727,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
     if( num_frames )
     {
         w->num_buffered_frames = num_frames;
-        w->buffered_frames = calloc( 1, num_frames * sizeof(w->buffered_frames) );
+        w->buffered_frames = calloc( num_frames, sizeof(w->buffered_frames) );
         if( !w->buffered_frames )
         {
            fprintf( stderr, "Malloc failed\n" );
