@@ -1432,7 +1432,7 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
 
     private_data_flag = write_dvb_au = random_access = priority = 0;
 
-    if( pes && (pes->data == pes->cur_pos) )
+    if( pes && ( pes->data == pes->cur_pos ) )
     {
         ts_int_stream_t *stream = pes->stream;
         random_access = pes->random_access;
