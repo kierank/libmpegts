@@ -1018,7 +1018,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 {
                     for( int i = 0; i < cur_num_pes; i++ )
                     {
-                        if( cur_pes[i]->stream->stream_format > 31 )
+                        if( !IS_VIDEO( stream ) )
                         {
                             stream = cur_pes[i]->stream;
                             pes_pcr = (cur_pes[i]->dts - stream->max_frame_size) * 300; /* earliest that a frame can arrive */
