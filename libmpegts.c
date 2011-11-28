@@ -86,6 +86,7 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program );
 static void write_timestamp( bs_t *s, uint64_t timestamp );
 static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_frame, ts_int_pes_t *out_pes );
 static int write_null_packet( ts_writer_t *w );
+static int64_t get_pcr( ts_writer_t *w );
 
 ts_writer_t *ts_create_writer( void )
 {
@@ -711,8 +712,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
     bs_t q;
     bs_t *s = &w->out.bs;
     /* earliest arrival time that the pes packet can arrive */
-    int64_t pes_pcr = 0;
-    int64_t cur_pcr = 0;
+    int64_t pes_pcr = 0, cur_pcr = 0;
 
     w->num_pcrs = 0;
 
@@ -904,7 +904,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 else
                     pes_pcr = (cur_pes[i]->dts - stream->max_frame_size) * 300; /* earliest that a frame can arrive */
 
-                if( cur_pes[i]->stream->stream_format > 31 && cur_pcr >= pes_pcr && cur_pes[i]->stream->tb.cur_buf == 0.0 )
+                /* exclude video packets */
+                if( !IS_VIDEO( stream ) && cur_pcr >= pes_pcr && cur_pes[i]->stream->tb.cur_buf == 0.0 )
                     pes = cur_pes[i];
             }
         }
@@ -915,9 +916,10 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             for( int i = 0; i < cur_num_pes; i++ )
             {
                 stream = cur_pes[i]->stream;
-                if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_AVC )
+                if( IS_VIDEO( stream ) )
                 {
                     pes_pcr = (cur_pes[i]->dts - stream->max_frame_size) * 300; /* earliest that a frame can arrive */
+
                     if( cur_pcr >= pes_pcr && cur_pes[i]->stream->tb.cur_buf == 0.0 )
                         pes = cur_pes[i];
                     break;
@@ -1425,7 +1427,7 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
     int start = bs_pos( s );
     uint8_t temp[512], temp2[256];
     bs_t q, r;
-    int64_t pcr = (int64_t)((8.0 * ( w->packets_written * TS_PACKET_SIZE + 7.0) / w->ts_muxrate) * TS_CLOCK + 0.5);
+    int64_t pcr = get_pcr( w );
     pcr += TS_START * TS_CLOCK;
 
     private_data_flag = write_dvb_au = random_access = priority = 0;
@@ -1971,4 +1973,9 @@ ts_int_stream_t *find_stream( ts_writer_t *w, int pid )
             return w->programs[0]->streams[i];
     }
     return NULL;
+}
+
+static int64_t get_pcr( ts_writer_t *w )
+{
+    return (int64_t)((8.0 * ( w->packets_written * TS_PACKET_SIZE + 7.0) / w->ts_muxrate) * TS_CLOCK + 0.5);
 }
