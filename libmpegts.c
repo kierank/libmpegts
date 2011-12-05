@@ -805,6 +805,33 @@ static int write_null_packet( ts_writer_t *w )
     return 0;
 }
 
+static int check_bitstream( ts_writer_t *w )
+{
+    if( w->out.bs.p_end - w->out.bs.p < 18800 )
+    {
+        bs_flush( &w->out.bs );
+        uint8_t *bs_bak = w->out.p_bitstream;
+        w->out.i_bitstream += 100000;
+        uint8_t *temp2 = realloc( w->out.p_bitstream, w->out.i_bitstream );
+
+        if( !temp2 )
+        {
+            fprintf( stderr, "realloc failed\n" );
+            return -1;
+        }
+        w->out.p_bitstream = temp2;
+
+        intptr_t delta = w->out.p_bitstream - bs_bak;
+
+        w->out.bs.p_start += delta;
+        w->out.bs.p += delta;
+        w->out.bs.p_end = w->out.p_bitstream + w->out.i_bitstream;
+        bs_realign( &w->out.bs );
+    }
+
+    return 0;
+}
+
 ts_writer_t *ts_create_writer( void )
 {
     ts_writer_t *w = calloc( 1, sizeof(*w) );
@@ -1565,27 +1592,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         write_adapt_field = adapt_field_len = write_pcr = 0;
         pkt_bytes_left = 184;
 
-        if( w->out.bs.p_end - w->out.bs.p < 18800 )
-        {
-            bs_flush( s );
-            uint8_t *bs_bak = w->out.p_bitstream;
-            w->out.i_bitstream += 100000;
-            uint8_t *temp2 = realloc( w->out.p_bitstream, w->out.i_bitstream );
-
-            if( !temp2 )
-            {
-                fprintf( stderr, "realloc failed\n" );
-                return -1;
-            }
-            w->out.p_bitstream = temp2;
-
-            intptr_t delta = w->out.p_bitstream - bs_bak;
-
-            w->out.bs.p_start += delta;
-            w->out.bs.p += delta;
-            w->out.bs.p_end = w->out.p_bitstream + w->out.i_bitstream;
-            bs_realign( s );
-        }
+        if( check_bitstream( w ) < 0 )
+            return -1;
 
         /* write any queued PMT packets */
         if( program->num_queued_pmt && w->tb.cur_buf == 0.0 )
