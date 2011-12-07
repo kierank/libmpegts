@@ -32,7 +32,7 @@
 
 /**** Version ****/
 #define LIBMPEGTS_API_VERSION_MAJOR 0
-#define LIBMPEGTS_API_VERSION_MINOR 2
+#define LIBMPEGTS_API_VERSION_MINOR 3
 
 /**** Stream Formats ****/
 /* Generic */
@@ -607,6 +607,9 @@ int ts_setup_dtcp( ts_writer_t *w, uint8_t byte_1, uint8_t byte_2 );
  *
  * PID - Packet Identifier (i.e. which stream the payload is associated with)
  *
+ * ** Video Only **
+ *
+ * CPB Initial Arrival Time - initial arrival time of picture in CPB (in 27MHz clock ticks)
  * DTS - Decode Time Stamp (in 90kHz clock ticks - maximum 30 bits)
  * PTS - Presentation Time Stamp (in 90kHz clock ticks - maximum 30 bits)
  * (PTS and DTS may have codec-specific meanings. See ISO 13818-1 for more information)
@@ -631,6 +634,7 @@ typedef struct
     uint8_t *data;
     int size;
     int pid;
+    int64_t cpb_initial_arrival_time;
     int64_t dts;
     int64_t pts;
     int random_access;

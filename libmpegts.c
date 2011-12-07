@@ -228,7 +228,7 @@ static void drip_buffer( ts_writer_t *w, ts_int_program_t *program, int rx, buff
 
 static int64_t get_pcr( ts_writer_t *w, double offset )
 {
-    return (int64_t)((8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) * TS_CLOCK + 0.5);
+    return (int64_t)((8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) * TS_CLOCK + 0.5) + TS_START * TS_CLOCK;
 }
 
 static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *program, ts_int_pes_t *pes,
@@ -239,7 +239,6 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
     uint8_t temp[512], temp2[256];
     bs_t q, r;
     int64_t pcr = get_pcr( w, 7 ); /* 7 bytes until end of PCR field */
-    pcr += TS_START * TS_CLOCK;
 
     private_data_flag = write_dvb_au = random_access = priority = 0;
 
@@ -410,7 +409,7 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
     int start;
     bs_t *s = &w->out.bs;
 
-    uint8_t pmt_buf[2048], temp[2048], temp1[2048];
+    uint8_t pmt_buf[2048] = {0}, temp[2048] = {0}, temp1[2048] = {0};
     bs_t o, p, q;
     int section_length;
     uint8_t **temp2;
@@ -1119,7 +1118,6 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
 
     stream->mpegvideo_ctx->level = level;
     stream->mpegvideo_ctx->profile = profile;
-    stream->max_frame_size = (int)(((double)vbv_bufsize * 90000LL / vbv_maxrate) + 0.5);
 
     if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 )
     {
@@ -1448,15 +1446,16 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
     ts_int_program_t *program = w->programs[0];
     ts_int_stream_t *stream;
 
-    int cur_num_pes = w->num_buffered_frames;
-    ts_int_pes_t **cur_pes = w->buffered_frames; // FIXME improve name
+    int initial_queued_pes = w->num_buffered_frames;
+    ts_int_pes_t **queued_pes = w->buffered_frames; // FIXME improve name
+    ts_int_pes_t **new_pes;
 
     int stuffing, flags, pkt_bytes_left, write_pcr, write_adapt_field, adapt_field_len, pes_start, running;
     uint8_t temp[200];
     bs_t q;
     bs_t *s = &w->out.bs;
     /* earliest arrival time that the pes packet can arrive */
-    int64_t pes_pcr = 0, cur_pcr = 0;
+    int64_t pes_arrive_pcr = 0, cur_pcr = 0;
 
     w->num_pcrs = 0;
 
@@ -1470,13 +1469,15 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
     if( num_frames )
     {
-        w->num_buffered_frames = num_frames;
-        w->buffered_frames = calloc( num_frames, sizeof(w->buffered_frames) );
-        if( !w->buffered_frames )
+        ts_int_pes_t **tmp = realloc( w->buffered_frames, (w->num_buffered_frames+num_frames) * sizeof(w->buffered_frames) );
+        if( !tmp )
         {
            fprintf( stderr, "Malloc failed\n" );
            return -1;
         }
+        w->buffered_frames = tmp;
+        new_pes = &w->buffered_frames[w->num_buffered_frames];
+        w->num_buffered_frames += num_frames;
     }
 
     for( int i = 0; i < num_frames; i++ )
@@ -1525,22 +1526,23 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         }
         // TODO more
 
-        w->buffered_frames[i] = calloc( 1, sizeof(ts_int_pes_t) );
-        if( !w->buffered_frames[i] )
+        new_pes[i] = calloc( 1, sizeof(ts_int_pes_t) );
+        if( !new_pes[i] )
         {
            fprintf( stderr, "Malloc failed\n" );
            return -1;
         }
 
-        w->buffered_frames[i]->stream = stream;
-        w->buffered_frames[i]->random_access = !!frames[i].random_access;
-        w->buffered_frames[i]->priority = !!frames[i].priority;
-        w->buffered_frames[i]->dts = frames[i].dts + TS_START * 90000LL;
-        w->buffered_frames[i]->pts = frames[i].pts + TS_START * 90000LL;
-        w->buffered_frames[i]->frame_type = frames[i].frame_type;
-        w->buffered_frames[i]->ref_pic_idc = frames[i].ref_pic_idc;
-        w->buffered_frames[i]->write_pulldown_info = frames[i].write_pulldown_info;
-        w->buffered_frames[i]->pic_struct = frames[i].pic_struct;
+        new_pes[i]->stream = stream;
+        new_pes[i]->random_access = !!frames[i].random_access;
+        new_pes[i]->priority = !!frames[i].priority;
+        new_pes[i]->cpb_initial_arrival_time = frames[i].cpb_initial_arrival_time + TS_START * 27000000LL;
+        new_pes[i]->dts = frames[i].dts + TS_START * 90000LL;
+        new_pes[i]->pts = frames[i].pts + TS_START * 90000LL;
+        new_pes[i]->frame_type = frames[i].frame_type;
+        new_pes[i]->ref_pic_idc = frames[i].ref_pic_idc;
+        new_pes[i]->write_pulldown_info = frames[i].write_pulldown_info;
+        new_pes[i]->pic_struct = frames[i].pic_struct;
 
         /* probe the first normal looking ac3 frame if extra data is needed */
         if( !stream->atsc_ac3_ctx && stream->stream_format == LIBMPEGTS_AUDIO_AC3 &&
@@ -1557,17 +1559,17 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         }
 
         /* 512 bytes is more than enough for pes overhead */
-        w->buffered_frames[i]->data = malloc( frames[i].size + 512 );
-        if( !w->buffered_frames[i]->data )
+        new_pes[i]->data = malloc( frames[i].size + 512 );
+        if( !new_pes[i]->data )
         {
            fprintf( stderr, "Malloc failed\n" );
            return -1;
         }
 
-        w->buffered_frames[i]->header_size = write_pes( w, program, &frames[i], w->buffered_frames[i] );
+        new_pes[i]->header_size = write_pes( w, program, &frames[i], new_pes[i] );
     }
 
-    if( !cur_num_pes )
+    if( !initial_queued_pes )
     {
         out = NULL;
         *len = 0;
@@ -1586,7 +1588,28 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         w->first_input = 1;
     }
 
-    while( cur_num_pes )
+    /* loop through and find the time when the second video packet in the queue can arrive */
+    int video_found = 0;
+    int64_t pcr_stop = 0;
+
+    cur_pcr = get_pcr( w, 0 );
+
+    for( int i = 0; i < w->num_buffered_frames; i++ )
+    {
+        stream = queued_pes[i]->stream;
+        if( IS_VIDEO( stream ) )
+        {
+            /* last frame is a special case - FIXME: is this acceptable in all use-cases? */
+            if( !num_frames )
+                pcr_stop = queued_pes[i]->dts;
+            else if( !video_found )
+                video_found = 1;
+            else
+                pcr_stop = queued_pes[i]->cpb_initial_arrival_time; /* earliest that a frame can arrive */
+        }
+    }
+
+    while( cur_pcr < pcr_stop )
     {
         ts_int_pes_t *pes = NULL;
         write_adapt_field = adapt_field_len = write_pcr = 0;
@@ -1599,54 +1622,54 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         if( program->num_queued_pmt && w->tb.cur_buf == 0.0 )
         {
             eject_queued_pmt( w, program, s );
+            cur_pcr = get_pcr( w, 0 );
             continue;
         }
 
         // FIXME at low bitrates this might need tweaking
 
         cur_pcr = get_pcr( w, 0 );
-        cur_pcr += TS_CLOCK * TS_START;
 
         /* Check all the non-video packets first */
-        for( int i = 0; i < cur_num_pes; i++ )
+        for( int i = 0; i < w->num_buffered_frames; i++ )
         {
-            if( !pes || cur_pes[i]->dts < pes->dts )
+            if( !pes || queued_pes[i]->dts < pes->dts )
             {
-                stream = cur_pes[i]->stream;
+                stream = queued_pes[i]->stream;
 
                 /* Teletext is special because data can only stay in the buffer for 40ms */
                 if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
-                    pes_pcr = (cur_pes[i]->dts - 3600) * 300;
+                    pes_arrive_pcr = (queued_pes[i]->dts - 3600) * 300;
                 else if( stream->stream_format == LIBMPEGTS_DVB_SUB )
-                    pes_pcr = 0; /* FIXME: is this right? */
+                    pes_arrive_pcr = 0; /* FIXME: is this right? */
                 else if( stream->stream_format == LIBMPEGTS_DVB_VBI && ( w->ts_type == TS_TYPE_CABLELABS || w->ts_type == TS_TYPE_ATSC ) )
                 {
                     /* SCTE-127 VBI is always in terms of NTSC */
-                    pes_pcr = (cur_pes[i]->dts - 3003) * 300;
+                    pes_arrive_pcr = (queued_pes[i]->dts - 3003) * 300;
                 }
                 else if( stream->stream_format == LIBMPEGTS_DVB_VBI )
-                    pes_pcr = (cur_pes[i]->dts - 3600) * 300;
+                    pes_arrive_pcr = (queued_pes[i]->dts - 3600) * 300;
                 else
-                    pes_pcr = (cur_pes[i]->dts - stream->max_frame_size) * 300; /* earliest that a frame can arrive */
+                    pes_arrive_pcr = (queued_pes[i]->dts - stream->max_frame_size) * 300; /* earliest that a frame can arrive */
 
                 /* exclude video packets */
-                if( !IS_VIDEO( stream ) && cur_pcr >= pes_pcr && cur_pes[i]->stream->tb.cur_buf == 0.0 )
-                    pes = cur_pes[i];
+                if( !IS_VIDEO( stream ) && cur_pcr >= pes_arrive_pcr && queued_pes[i]->stream->tb.cur_buf == 0.0 )
+                    pes = queued_pes[i];
             }
         }
 
         /* See if we can write a video packet if non-audio packets can't be written. */
         if( !pes )
         {
-            for( int i = 0; i < cur_num_pes; i++ )
+            for( int i = 0; i < w->num_buffered_frames; i++ )
             {
-                stream = cur_pes[i]->stream;
+                stream = queued_pes[i]->stream;
                 if( IS_VIDEO( stream ) )
                 {
-                    pes_pcr = (cur_pes[i]->dts - stream->max_frame_size) * 300; /* earliest that a frame can arrive */
+                    pes_arrive_pcr = queued_pes[i]->cpb_initial_arrival_time; /* earliest that a frame can arrive */
 
-                    if( cur_pcr >= pes_pcr && cur_pes[i]->stream->tb.cur_buf == 0.0 )
-                        pes = cur_pes[i];
+                    if( cur_pcr >= pes_arrive_pcr && queued_pes[i]->stream->tb.cur_buf == 0.0 )
+                        pes = queued_pes[i];
                     break;
                 }
             }
@@ -1655,12 +1678,23 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         if( pes )
         {
             stream = pes->stream;
+
             pes_start = pes->data == pes->cur_pos; /* flag if packet contains pes header */
+#if 0
+            if( IS_VIDEO( stream ) && pes_start )
+            {
+                printf("\n last pcr delta %"PRIi64" \n", get_pcr( w, 0 ) - stream->last_pkt_pcr );
+            }
+#endif
+            stream->last_pkt_pcr = get_pcr( w, 0 );
 
             // FIXME complain less
             if( pes->dts * 300 < cur_pcr )
                 fprintf( stderr, "\n dts is less than pcr pid: %i dts: %"PRIi64" pcr: %"PRIi64" \n", pes->stream->pid, pes->dts*300, cur_pcr );
-
+#if 0
+            if( IS_VIDEO( stream ) && pes->cpb_initial_arrival_time > cur_pcr )
+                fprintf( stderr, "\n initial arrival time is greater than than pcr \n" );
+#endif
             bs_init( &q, temp, 150 );
 
             /* It is good practice to write a pcr at the beginning of a video payload */
@@ -1735,48 +1769,21 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                     return -1;
             }
 
-            if( pes->bytes_left <= pes->handover_bytes_left )
+            if( pes->bytes_left == 0 )
             {
-                /* When a video frame arrives and the associated non-video packets are not ready to be written send frames to next context
-                 * This happens at the beginning of a transport stream as the video buffers  */
-                if( num_frames && (pes->stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || pes->stream->stream_format == LIBMPEGTS_VIDEO_AVC) )
-                {
-                    for( int i = 0; i < cur_num_pes; i++ )
-                    {
-                        if( !IS_VIDEO( stream ) )
-                        {
-                            stream = cur_pes[i]->stream;
-                            pes_pcr = (cur_pes[i]->dts - stream->max_frame_size) * 300; /* earliest that a frame can arrive */
-                            if( pes_pcr > cur_pcr )
-                            {
-                                w->buffered_frames = realloc( w->buffered_frames, (w->num_buffered_frames+1) * sizeof(w->buffered_frames) );
-                                w->buffered_frames[w->num_buffered_frames++] = cur_pes[i];
-                                memmove( &cur_pes[i], &cur_pes[i+1], (cur_num_pes-1-i) * sizeof(cur_pes) );
-                                cur_num_pes--;
-                                i--; /* check current position again */
-                            }
-                        }
-                    }
-                }
-
                 /* eject the current pes from the queue */
-                for( int i = 0; i < cur_num_pes; i++ )
+                for( int i = 0; i < w->num_buffered_frames; i++ )
                 {
-                    if( cur_pes[i] == pes )
+                    if( queued_pes[i] == pes )
                     {
-                        cur_num_pes--;
-                        memmove( &cur_pes[i], &cur_pes[i+1], (cur_num_pes-i) * sizeof(cur_pes) );
+                        w->num_buffered_frames--;
+                        memmove( &queued_pes[i], &queued_pes[i+1], (w->num_buffered_frames-i) * sizeof(queued_pes) );
                         break;
                     }
                 }
 
-                if( pes->handover_bytes_left )
-                    pes->handover_bytes_left = 0;
-                else
-                {
-                    free( pes->data );
-                    free( pes );
-                }
+                free( pes->data );
+                free( pes );
             }
 
             if( check_pcr( w, program ) && write_pcr_empty( w, program, 0 ) < 0 )
@@ -1801,8 +1808,6 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
     }
 
     bs_flush( s );
-
-    free( cur_pes );
 
     *out = w->out.p_bitstream;
     *len = bs_pos( s ) >> 3;
@@ -1839,6 +1844,8 @@ int ts_close_writer( ts_writer_t *w )
             free( w->programs[i]->streams[j] );
         }
     }
+
+    // todo free buffered frames
 
     if( w->pcr_list )
         free( w->pcr_list );
@@ -1929,8 +1936,7 @@ int increase_pcr( ts_writer_t *w, int num_packets, int imaginary )
             w->pcr_list = temp;
         }
 
-        pcr = (int64_t)((8.0 * w->packets_written * TS_PACKET_SIZE / w->ts_muxrate) * TS_CLOCK + 0.5);
-        pcr += TS_START * TS_CLOCK;
+        pcr = get_pcr( w, 0 );
 
         w->pcr_list[w->num_pcrs++] = pcr;
     }

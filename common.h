@@ -165,6 +165,8 @@ typedef struct
 
     int version_number;
 
+    int64_t last_pkt_pcr;
+
     /* Stream contexts */
     mpegvideo_stream_ctx_t  *mpegvideo_ctx;
     lpcm_stream_ctx_t       *lpcm_ctx;
@@ -226,7 +228,6 @@ typedef struct
     int size;
     uint8_t *cur_pos;
     int bytes_left;
-    int handover_bytes_left;
 
     /* stream context associated with pes */
     ts_int_stream_t *stream;
@@ -235,6 +236,7 @@ typedef struct
     int random_access;
     int priority;
 
+    int64_t cpb_initial_arrival_time;
     int64_t dts;
     int64_t pts;
 
