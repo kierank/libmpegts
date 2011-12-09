@@ -1447,7 +1447,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
     ts_int_stream_t *stream;
 
     int initial_queued_pes = w->num_buffered_frames;
-    ts_int_pes_t **queued_pes = w->buffered_frames; // FIXME improve name
+    ts_int_pes_t **queued_pes;
     ts_int_pes_t **new_pes;
 
     int stuffing, flags, pkt_bytes_left, write_pcr, write_adapt_field, adapt_field_len, pes_start, running;
@@ -1479,6 +1479,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         new_pes = &w->buffered_frames[w->num_buffered_frames];
         w->num_buffered_frames += num_frames;
     }
+
+    queued_pes = w->buffered_frames;
 
     for( int i = 0; i < num_frames; i++ )
     {
