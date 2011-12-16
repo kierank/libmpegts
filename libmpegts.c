@@ -1613,6 +1613,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
     while( cur_pcr < pcr_stop )
     {
+        //printf("\n pcr_stop %"PRIi64" cur_pcr %"PRIi64" \n", pcr_stop, cur_pcr );
+
         ts_int_pes_t *pes = NULL;
         write_adapt_field = adapt_field_len = write_pcr = 0;
         pkt_bytes_left = 184;
@@ -1629,8 +1631,6 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         }
 
         // FIXME at low bitrates this might need tweaking
-
-        cur_pcr = get_pcr( w, 0 );
 
         /* Check all the non-video packets first */
         for( int i = 0; i < w->num_buffered_frames; i++ )
@@ -1688,11 +1688,15 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 printf("\n last pcr delta %"PRIi64" \n", get_pcr( w, 0 ) - stream->last_pkt_pcr );
             }
 #endif
-            stream->last_pkt_pcr = get_pcr( w, 0 );
+            stream->last_pkt_pcr = cur_pcr;
+
+            if( pcr_stop < cur_pcr )
+                fprintf( stderr, "\n pcr_stop is less than pcr pid: %i pcr_stop: %"PRIi64" pcr: %"PRIi64" \n", pes->stream->pid, pcr_stop, cur_pcr );
 
             // FIXME complain less
             if( pes->dts * 300 < cur_pcr )
                 fprintf( stderr, "\n dts is less than pcr pid: %i dts: %"PRIi64" pcr: %"PRIi64" \n", pes->stream->pid, pes->dts*300, cur_pcr );
+
 #if 0
             if( IS_VIDEO( stream ) && pes->cpb_initial_arrival_time > cur_pcr )
                 fprintf( stderr, "\n initial arrival time is greater than than pcr \n" );
@@ -1807,6 +1811,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             else if( increase_pcr( w, 1, 1 ) < 0 )
                 return -1; /* write imaginary packet in capped vbr mode */
         }
+        cur_pcr = get_pcr( w, 0 );
     }
 
     bs_flush( s );
