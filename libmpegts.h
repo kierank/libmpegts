@@ -610,6 +610,7 @@ int ts_setup_dtcp( ts_writer_t *w, uint8_t byte_1, uint8_t byte_2 );
  * ** Video Only **
  *
  * CPB Initial Arrival Time - initial arrival time of picture in CPB (in 27MHz clock ticks)
+ * CPB Final Arrival Time - final arrival time of picture in CPB (in 27MHz clock ticks)
  * DTS - Decode Time Stamp (in 90kHz clock ticks - maximum 30 bits)
  * PTS - Presentation Time Stamp (in 90kHz clock ticks - maximum 30 bits)
  * (PTS and DTS may have codec-specific meanings. See ISO 13818-1 for more information)
@@ -635,6 +636,7 @@ typedef struct
     int size;
     int pid;
     int64_t cpb_initial_arrival_time;
+    int64_t cpb_final_arrival_time;
     int64_t dts;
     int64_t pts;
     int random_access;

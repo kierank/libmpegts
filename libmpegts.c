@@ -1539,6 +1539,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         new_pes[i]->random_access = !!frames[i].random_access;
         new_pes[i]->priority = !!frames[i].priority;
         new_pes[i]->cpb_initial_arrival_time = frames[i].cpb_initial_arrival_time + TS_START * 27000000LL;
+        new_pes[i]->cpb_final_arrival_time = frames[i].cpb_final_arrival_time + TS_START * 27000000LL;
         new_pes[i]->dts = frames[i].dts + TS_START * 90000LL;
         new_pes[i]->pts = frames[i].pts + TS_START * 90000LL;
         new_pes[i]->frame_type = frames[i].frame_type;
@@ -1591,23 +1592,16 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
     }
 
     /* loop through and find the time when the second video packet in the queue can arrive */
-    int video_found = 0;
     int64_t pcr_stop = 0;
 
     cur_pcr = get_pcr( w, 0 );
 
     for( int i = 0; i < w->num_buffered_frames; i++ )
     {
-        stream = queued_pes[i]->stream;
-        if( IS_VIDEO( stream ) )
+        if( IS_VIDEO( queued_pes[i]->stream ) )
         {
-            /* last frame is a special case - FIXME: is this acceptable in all use-cases? */
-            if( !num_frames )
-                pcr_stop = queued_pes[i]->dts;
-            else if( !video_found )
-                video_found = 1;
-            else
-                pcr_stop = queued_pes[i]->cpb_initial_arrival_time; /* earliest that a frame can arrive */
+            pcr_stop = queued_pes[i]->cpb_final_arrival_time;
+            break;
         }
     }
 
@@ -1680,7 +1674,6 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         if( pes )
         {
             stream = pes->stream;
-
             pes_start = pes->data == pes->cur_pos; /* flag if packet contains pes header */
 #if 0
             if( IS_VIDEO( stream ) && pes_start )

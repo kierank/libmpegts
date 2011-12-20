@@ -237,6 +237,7 @@ typedef struct
     int priority;
 
     int64_t cpb_initial_arrival_time;
+    int64_t cpb_final_arrival_time;
     int64_t dts;
     int64_t pts;
 
