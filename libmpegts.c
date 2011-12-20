@@ -1592,16 +1592,23 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
     }
 
     /* loop through and find the time when the second video packet in the queue can arrive */
+    int video_found = 0;
     int64_t pcr_stop = 0;
 
     cur_pcr = get_pcr( w, 0 );
 
     for( int i = 0; i < w->num_buffered_frames; i++ )
     {
-        if( IS_VIDEO( queued_pes[i]->stream ) )
+        stream = queued_pes[i]->stream;
+        if( IS_VIDEO( stream ) )
         {
-            pcr_stop = queued_pes[i]->cpb_final_arrival_time;
-            break;
+            /* last frame is a special case - FIXME: is this acceptable in all use-cases? */
+            if( !num_frames )
+                pcr_stop = queued_pes[i]->dts;
+            else if( !video_found )
+                video_found = 1;
+            else
+                pcr_stop = queued_pes[i]->cpb_initial_arrival_time; /* earliest that a frame can arrive */
         }
     }
 
