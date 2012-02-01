@@ -1851,7 +1851,13 @@ int ts_close_writer( ts_writer_t *w )
         }
     }
 
-    // todo free buffered frames
+    for( int i = 0; i < w->num_buffered_frames; i++ )
+    {
+        free( w->buffered_frames[i]->data );
+        free( w->buffered_frames[i] );
+    }
+
+    free( w->buffered_frames );
 
     if( w->pcr_list )
         free( w->pcr_list );
