@@ -316,8 +316,7 @@ static int write_pcr_empty( ts_writer_t *w, ts_int_program_t *program, int first
 
     write_packet_header( w, s, 0, program->pcr_stream->pid, ADAPT_FIELD_ONLY, &program->pcr_stream->cc );
     int stuffing = 184 - 6 - 2; /* pcr, flags and length */
-    int discontinuity = first && w->ts_type == TS_TYPE_CABLELABS;
-    write_adaptation_field( w, s, program, NULL, 1, 1, stuffing, discontinuity );
+    write_adaptation_field( w, s, program, NULL, 1, 1, stuffing, first );
 
     add_to_buffer( &program->pcr_stream->tb );
     if( increase_pcr( w, 1, 0 ) < 0 )
