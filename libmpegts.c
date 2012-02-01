@@ -1847,8 +1847,14 @@ int ts_close_writer( ts_writer_t *w )
                 free( w->programs[i]->streams[j]->atsc_ac3_ctx );
             if( w->programs[i]->streams[j]->dvb_sub_ctx )
                 free( w->programs[i]->streams[j]->dvb_sub_ctx );
+            if( w->programs[i]->streams[j]->dvb_ttx_ctx )
+                free( w->programs[i]->streams[j]->dvb_ttx_ctx );
+            if( w->programs[i]->streams[j]->dvb_vbi_ctx )
+                free( w->programs[i]->streams[j]->dvb_vbi_ctx );
             free( w->programs[i]->streams[j] );
         }
+
+        free( w->programs[i] );
     }
 
     for( int i = 0; i < w->num_buffered_frames; i++ )
