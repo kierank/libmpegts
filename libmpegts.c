@@ -1702,7 +1702,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 #endif
             bs_init( &q, temp, 150 );
 
-            /* It is good practice to write a pcr at the beginning of a video payload */
+            /* It is good practice to write a pcr at the beginning of a video payload, and allows the packet to be
+             * a random access indicator if applicable */
             if( program->pcr_stream == stream && pes_start )
                 write_pcr = 1;
             else if( check_pcr( w, program ) )
