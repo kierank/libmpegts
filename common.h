@@ -236,8 +236,8 @@ typedef struct
     int random_access;
     int priority;
 
-    int64_t cpb_initial_arrival_time;
-    int64_t cpb_final_arrival_time;
+    int64_t initial_arrival_time;
+    int64_t final_arrival_time;
     int64_t dts;
     int64_t pts;
 

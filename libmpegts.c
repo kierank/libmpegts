@@ -958,7 +958,7 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         }
 
         cur_stream->stream_id = stream_in->stream_id;
-        /* Use audio frame size for now. Video streams will have this rewritten */
+        /* Ignored in video streams  */
         cur_stream->max_frame_size = stream_in->audio_frame_size;
 
         if( stream_in->has_stream_identifier )
@@ -1454,7 +1454,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
     bs_t q;
     bs_t *s = &w->out.bs;
     /* earliest arrival time that the pes packet can arrive */
-    int64_t pes_arrive_pcr = 0, cur_pcr = 0;
+    int64_t cur_pcr = 0;
 
     w->num_pcrs = 0;
 
@@ -1537,14 +1537,28 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         new_pes[i]->stream = stream;
         new_pes[i]->random_access = !!frames[i].random_access;
         new_pes[i]->priority = !!frames[i].priority;
-        new_pes[i]->cpb_initial_arrival_time = frames[i].cpb_initial_arrival_time + TS_START * 27000000LL;
-        new_pes[i]->cpb_final_arrival_time = frames[i].cpb_final_arrival_time + TS_START * 27000000LL;
         new_pes[i]->dts = frames[i].dts + TS_START * 90000LL;
         new_pes[i]->pts = frames[i].pts + TS_START * 90000LL;
-        new_pes[i]->frame_type = frames[i].frame_type;
-        new_pes[i]->ref_pic_idc = frames[i].ref_pic_idc;
-        new_pes[i]->write_pulldown_info = frames[i].write_pulldown_info;
-        new_pes[i]->pic_struct = frames[i].pic_struct;
+
+        if( IS_VIDEO( stream ) )
+        {
+            new_pes[i]->frame_type = frames[i].frame_type;
+            new_pes[i]->initial_arrival_time = frames[i].cpb_initial_arrival_time + TS_START * 27000000LL;
+            new_pes[i]->final_arrival_time = frames[i].cpb_final_arrival_time + TS_START * 27000000LL;
+	    new_pes[i]->ref_pic_idc = frames[i].ref_pic_idc;
+            new_pes[i]->write_pulldown_info = frames[i].write_pulldown_info;
+            new_pes[i]->pic_struct = frames[i].pic_struct;
+        }
+        else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
+            new_pes[i]->initial_arrival_time = (queued_pes[i]->dts - 3600) * 300; /* Teletext is special because data can only stay in the buffer for 40ms */
+        else if( stream->stream_format == LIBMPEGTS_DVB_SUB )
+            new_pes[i]->initial_arrival_time = 0; /* FIXME: is this right? */
+        else if( stream->stream_format == LIBMPEGTS_DVB_VBI && ( w->ts_type == TS_TYPE_CABLELABS || w->ts_type == TS_TYPE_ATSC ) )
+            new_pes[i]->initial_arrival_time = (queued_pes[i]->dts - 3003) * 300; /* SCTE-127 VBI is always in terms of NTSC */
+        else if( stream->stream_format == LIBMPEGTS_DVB_VBI )
+            new_pes[i]->initial_arrival_time = (queued_pes[i]->dts - 3600) * 300;
+        else
+            new_pes[i]->initial_arrival_time = (queued_pes[i]->dts - stream->max_frame_size) * 300; /* earliest that a frame can arrive */
 
         /* probe the first normal looking ac3 frame if extra data is needed */
         if( !stream->atsc_ac3_ctx && stream->stream_format == LIBMPEGTS_AUDIO_AC3 &&
@@ -1607,7 +1621,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             else if( !video_found )
                 video_found = 1;
             else
-                pcr_stop = queued_pes[i]->cpb_initial_arrival_time; /* earliest that a frame can arrive */
+                pcr_stop = queued_pes[i]->initial_arrival_time; /* earliest that a frame can arrive */
         }
     }
 
@@ -1639,23 +1653,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             {
                 stream = queued_pes[i]->stream;
 
-                /* Teletext is special because data can only stay in the buffer for 40ms */
-                if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
-                    pes_arrive_pcr = (queued_pes[i]->dts - 3600) * 300;
-                else if( stream->stream_format == LIBMPEGTS_DVB_SUB )
-                    pes_arrive_pcr = 0; /* FIXME: is this right? */
-                else if( stream->stream_format == LIBMPEGTS_DVB_VBI && ( w->ts_type == TS_TYPE_CABLELABS || w->ts_type == TS_TYPE_ATSC ) )
-                {
-                    /* SCTE-127 VBI is always in terms of NTSC */
-                    pes_arrive_pcr = (queued_pes[i]->dts - 3003) * 300;
-                }
-                else if( stream->stream_format == LIBMPEGTS_DVB_VBI )
-                    pes_arrive_pcr = (queued_pes[i]->dts - 3600) * 300;
-                else
-                    pes_arrive_pcr = (queued_pes[i]->dts - stream->max_frame_size) * 300; /* earliest that a frame can arrive */
-
                 /* exclude video packets */
-                if( !IS_VIDEO( stream ) && cur_pcr >= pes_arrive_pcr && queued_pes[i]->stream->tb.cur_buf == 0.0 )
+                if( !IS_VIDEO( stream ) && cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 )
                     pes = queued_pes[i];
             }
         }
@@ -1666,12 +1665,9 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             for( int i = 0; i < w->num_buffered_frames; i++ )
             {
                 stream = queued_pes[i]->stream;
-                if( IS_VIDEO( stream ) )
+                if( IS_VIDEO( stream ) && cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 )
                 {
-                    pes_arrive_pcr = queued_pes[i]->cpb_initial_arrival_time; /* earliest that a frame can arrive */
-
-                    if( cur_pcr >= pes_arrive_pcr && queued_pes[i]->stream->tb.cur_buf == 0.0 )
-                        pes = queued_pes[i];
+                    pes = queued_pes[i];
                     break;
                 }
             }
