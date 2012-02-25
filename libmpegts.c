@@ -1550,15 +1550,15 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             new_pes[i]->pic_struct = frames[i].pic_struct;
         }
         else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
-            new_pes[i]->initial_arrival_time = (queued_pes[i]->dts - 3600) * 300; /* Teletext is special because data can only stay in the buffer for 40ms */
+            new_pes[i]->initial_arrival_time = (new_pes[i]->dts - 3600) * 300; /* Teletext is special because data can only stay in the buffer for 40ms */
         else if( stream->stream_format == LIBMPEGTS_DVB_SUB )
             new_pes[i]->initial_arrival_time = 0; /* FIXME: is this right? */
         else if( stream->stream_format == LIBMPEGTS_DVB_VBI && ( w->ts_type == TS_TYPE_CABLELABS || w->ts_type == TS_TYPE_ATSC ) )
-            new_pes[i]->initial_arrival_time = (queued_pes[i]->dts - 3003) * 300; /* SCTE-127 VBI is always in terms of NTSC */
+            new_pes[i]->initial_arrival_time = (new_pes[i]->dts - 3003) * 300; /* SCTE-127 VBI is always in terms of NTSC */
         else if( stream->stream_format == LIBMPEGTS_DVB_VBI )
-            new_pes[i]->initial_arrival_time = (queued_pes[i]->dts - 3600) * 300;
+            new_pes[i]->initial_arrival_time = (new_pes[i]->dts - 3600) * 300;
         else
-            new_pes[i]->initial_arrival_time = (queued_pes[i]->dts - stream->max_frame_size) * 300; /* earliest that a frame can arrive */
+            new_pes[i]->initial_arrival_time = (new_pes[i]->dts - stream->max_frame_size) * 300; /* earliest that a frame can arrive */
 
         /* probe the first normal looking ac3 frame if extra data is needed */
         if( !stream->atsc_ac3_ctx && stream->stream_format == LIBMPEGTS_AUDIO_AC3 &&
