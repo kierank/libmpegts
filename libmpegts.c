@@ -238,7 +238,6 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
     int start = bs_pos( s );
     uint8_t temp[512], temp2[256];
     bs_t q, r;
-    int64_t pcr = get_pcr( w, 7 ); /* 7 bytes until end of PCR field */
 
     private_data_flag = write_dvb_au = random_access = priority = 0;
 
@@ -246,11 +245,17 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
     {
         ts_int_stream_t *stream = pes->stream;
         random_access = pes->random_access;
+        if( IS_VIDEO( stream ) )
+        {
+            if( !write_pcr )
+                random_access = 0;
+
+            if( stream->dvb_au )
+                private_data_flag = write_dvb_au = 1;
+        }
+
         priority = pes->priority;
         pes->random_access = 0; /* don't write this flag again */
-
-        if( stream->dvb_au && ( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_AVC ) )
-            private_data_flag = write_dvb_au = 1;
     }
 
     /* initialise temporary bitstream */
@@ -258,6 +263,7 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
 
     if( flags )
     {
+        int64_t pcr = get_pcr( w, 7 ); /* 7 bytes until end of PCR field */
         bs_write1( &q, discontinuity ); // discontinuity_indicator
         bs_write1( &q, random_access ); // random_access_indicator
         bs_write1( &q, priority );  // elementary_stream_priority_indicator
