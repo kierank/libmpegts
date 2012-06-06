@@ -146,7 +146,7 @@ enum ts_type_t
 /* MPEG-2 Levels */
 enum mpeg2_level_t
 {
-    MPEG2_LEVEL_LOW,
+    MPEG2_LEVEL_LOW = 1,
     MPEG2_LEVEL_MAIN,
     MPEG2_LEVEL_HIGH_1440,
     MPEG2_LEVEL_HIGH,
