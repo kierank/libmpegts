@@ -1066,12 +1066,12 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
 
     if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 )
     {
-        if( level < MPEG2_LEVEL_LOW || level > MPEG2_LEVEL_HIGHP )
+        if( level < LIBMPEGTS_MPEG2_LEVEL_LOW || level > LIBMPEGTS_MPEG2_LEVEL_HIGHP )
         {
             fprintf( stderr, "Invalid MPEG-2 Level\n" );
             return -1;
         }
-        if( profile < MPEG2_PROFILE_SIMPLE || profile > MPEG2_PROFILE_422 )
+        if( profile < LIBMPEGTS_MPEG2_PROFILE_SIMPLE || profile > LIBMPEGTS_MPEG2_PROFILE_422 )
         {
             fprintf( stderr, "Invalid MPEG-2 Profile\n" );
             return -1;
@@ -1132,7 +1132,7 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
         stream->rx = 1.2 * mpeg2_levels[level_idx].bitrate;
         stream->eb.buf_size = vbv_bufsize;
 
-        if( level == MPEG2_LEVEL_LOW || level == MPEG2_LEVEL_MAIN )
+        if( level == LIBMPEGTS_MPEG2_LEVEL_LOW || level == LIBMPEGTS_MPEG2_LEVEL_MAIN )
         {
             stream->mb.buf_size = bs_mux + bs_oh + mpeg2_levels[level_idx].vbv - vbv_bufsize;
             stream->rbx = mpeg2_levels[level_idx].bitrate;
