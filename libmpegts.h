@@ -381,6 +381,10 @@ int ts_setup_mpeg2_aac_stream( ts_writer_t *w, int pid, int profile, int channel
 #define LIBMPEGTS_MPEG4_HE_AAC_PROFILE_LEVEL_3   0x59
 #define LIBMPEGTS_MPEG4_HE_AAC_PROFILE_LEVEL_4   0x5a
 #define LIBMPEGTS_MPEG4_HE_AAC_PROFILE_LEVEL_5   0x5b
+#define LIBMPEGTS_MPEG4_HE_AAC_V2_PROFILE_LEVEL_2 0x60
+#define LIBMPEGTS_MPEG4_HE_AAC_V2_PROFILE_LEVEL_3 0x61
+#define LIBMPEGTS_MPEG4_HE_AAC_V2_PROFILE_LEVEL_4 0x62
+#define LIBMPEGTS_MPEG4_HE_AAC_V2_PROFILE_LEVEL_5 0x63
 
 /* Setup / Update MPEG-4 AAC Stream
  * profile_and_level - self explanatory
