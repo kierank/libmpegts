@@ -210,6 +210,11 @@ static void add_to_buffer( buffer_t *buffer )
 
 static void drip_buffer( ts_writer_t *w, ts_int_program_t *program, int rx, buffer_t *buffer, double next_pcr )
 {
+    int iters;
+    double offset;
+
+    /* Although this uses floating point arithmetic, the values are backed by integers
+     * Transport buffer fullness does not need to be exact */
     double cur_pcr = TS_START + w->packets_written * 8.0 * TS_PACKET_SIZE / w->ts_muxrate;
     if( buffer->last_byte_removal_time == 0.0 )
     {
@@ -217,11 +222,12 @@ static void drip_buffer( ts_writer_t *w, ts_int_program_t *program, int rx, buff
         buffer->cur_buf -= 8;
     }
 
-    while( buffer->last_byte_removal_time + (8.0 / rx) < next_pcr )
-    {
-        buffer->cur_buf -= 8;
-        buffer->last_byte_removal_time += 8.0 / rx;
-    }
+    iters = floor( (next_pcr - buffer->last_byte_removal_time) / (8.0 / rx) );
+
+    buffer->cur_buf -= 8*iters;
+    /* Avoid compounded error from floating point addition by making calculations relative to next_pcr */
+    offset = next_pcr - (buffer->last_byte_removal_time + 8.0 * iters / rx);
+    buffer->last_byte_removal_time = next_pcr - offset;
 
     buffer->cur_buf = MAX( buffer->cur_buf, 0 );
 }
