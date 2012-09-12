@@ -27,8 +27,10 @@
 void write_aac_descriptor( bs_t *s, ts_int_stream_t *stream )
 {
     bs_write( s, 8, DVB_AAC_DESCRIPTOR_TAG ); // descriptor_tag
-    bs_write( s, 8, 1 );                      // descriptor_length
+    bs_write( s, 8, 2 );                      // descriptor_length
     bs_write( s, 8, stream->aac_profile );    // profile_and_level
+    bs_write( s, 1, 0 );                      // AAC_type_flag
+    bs_write( s, 7, 0x7f );                   // reserved
 }
 
 void write_adaptation_field_data_descriptor( bs_t *s, uint8_t identifier )
