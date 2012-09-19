@@ -1710,22 +1710,21 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 #endif
             bs_init( &q, temp, 150 );
 
-            /* It is good practice to write a pcr at the beginning of a video payload, and allows the packet to be
-             * a random access indicator if applicable */
             if( program->pcr_stream == stream && pes_start )
-                write_pcr = 1;
-            else if( check_pcr( w, program ) )
+                write_adapt_field = 1;
+
+            if( check_pcr( w, program ) )
             {
                 if( program->pcr_stream == stream )
                 {
                     /* piggyback pcr on this stream */
-                    write_pcr = 1;
+                    write_adapt_field = write_pcr = 1;
                 }
                 else if( write_pcr_empty( w, program, 0 ) < 0 )
                     return -1;
             }
 
-            if( write_pcr )
+            if( write_adapt_field )
             {
                 adapt_field_len = write_adaptation_field( w, &q, program, pes, write_pcr, 1, 0, 0 );
                 pkt_bytes_left -= adapt_field_len;
