@@ -1152,14 +1152,15 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
     else if( stream->stream_format == LIBMPEGTS_VIDEO_AVC )
     {
         int factor = (float)nal_factor[stream->mpegvideo_ctx->profile] * 1.2;
-        bs_mux = 0.004 * MAX( factor * avc_levels[level_idx].bitrate, 2000000 );
-        bs_oh = 1.0 * MAX( factor * avc_levels[level_idx].bitrate, 2000000 )/750.0;
+        int bitrate = avc_levels[level_idx].bitrate * factor;
+        bs_mux = 0.004 * MAX( bitrate, 2000000 );
+        bs_oh = 1.0 * MAX( bitrate, 2000000 )/750.0;
 
         stream->mb.buf_size = bs_mux + bs_oh;
-        stream->eb.buf_size = nal_factor * avc_levels[level_idx].cpb;
+        stream->eb.buf_size = avc_levels[level_idx].cpb * factor;
 
-        stream->rx = factor * avc_levels[level_idx].bitrate;
-        stream->rbx = factor * avc_levels[level_idx].bitrate;
+        stream->rx = bitrate;
+        stream->rbx = bitrate;
     }
 
     return 0;
