@@ -67,6 +67,7 @@ const avc_level_t avc_levels[] =
     { 42,  50000,  62500 },
     { 50, 135000, 135000 },
     { 51, 240000, 240000 },
+    { 52, 240000, 240000 },
     { 0 }
 };
 
@@ -82,6 +83,20 @@ const uint8_t avc_profiles[] =
     [AVC_HIGH_422_INTRA]  = 122,
     [AVC_HIGH_444_INTRA]  = 244,
     [AVC_CAVLC_444_INTRA] = 44,
+};
+
+const int nal_factor[] =
+{
+    [AVC_BASELINE] = 1200,
+    [AVC_MAIN]     = 1200,
+    [AVC_HIGH]     = 1500,
+    [AVC_HIGH_10]  = 3600,
+    [AVC_HIGH_422] = 4800,
+    [AVC_HIGH_444_PRED]   = 4800,
+    [AVC_HIGH_10_INTRA]   = 3600,
+    [AVC_HIGH_422_INTRA]  = 4800,
+    [AVC_HIGH_444_INTRA]  = 4800,
+    [AVC_CAVLC_444_INTRA] = 4800,
 };
 
 /* Audio */

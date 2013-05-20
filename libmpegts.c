@@ -1151,14 +1151,15 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
     }
     else if( stream->stream_format == LIBMPEGTS_VIDEO_AVC )
     {
-        bs_mux = 0.004 * MAX( 1200 * avc_levels[level_idx].bitrate, 2000000 );
-        bs_oh = 1.0 * MAX( 1200 * avc_levels[level_idx].bitrate, 2000000 )/750.0;
+        int factor = (float)nal_factor[stream->mpegvideo_ctx->profile] * 1.2;
+        bs_mux = 0.004 * MAX( factor * avc_levels[level_idx].bitrate, 2000000 );
+        bs_oh = 1.0 * MAX( factor * avc_levels[level_idx].bitrate, 2000000 )/750.0;
 
         stream->mb.buf_size = bs_mux + bs_oh;
-        stream->eb.buf_size = 1200 * avc_levels[level_idx].cpb;
+        stream->eb.buf_size = nal_factor * avc_levels[level_idx].cpb;
 
-        stream->rx = 1200 * avc_levels[level_idx].bitrate;
-        stream->rbx = 1200 * avc_levels[level_idx].bitrate;
+        stream->rx = factor * avc_levels[level_idx].bitrate;
+        stream->rbx = factor * avc_levels[level_idx].bitrate;
     }
 
     return 0;
@@ -1557,7 +1558,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             new_pes[i]->frame_type = frames[i].frame_type;
             new_pes[i]->initial_arrival_time = frames[i].cpb_initial_arrival_time + TS_START * 27000000LL;
             new_pes[i]->final_arrival_time = frames[i].cpb_final_arrival_time + TS_START * 27000000LL;
-	    new_pes[i]->ref_pic_idc = frames[i].ref_pic_idc;
+            new_pes[i]->ref_pic_idc = frames[i].ref_pic_idc;
             new_pes[i]->write_pulldown_info = frames[i].write_pulldown_info;
             new_pes[i]->pic_struct = frames[i].pic_struct;
         }
