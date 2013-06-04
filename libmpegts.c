@@ -202,6 +202,16 @@ static int check_pcr( ts_writer_t *w, ts_int_program_t *program )
     return 0;
 }
 
+static int64_t get_pcr_int( ts_writer_t *w, double offset )
+{
+    return (int64_t)((8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) * TS_CLOCK + 0.5) + TS_START * TS_CLOCK;
+}
+
+static double get_pcr_double( ts_writer_t *w, double offset )
+{
+    return (8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) + TS_START;
+}
+
 /**** Buffer management ****/
 static void add_to_buffer( buffer_t *buffer )
 {
@@ -215,7 +225,7 @@ static void drip_buffer( ts_writer_t *w, ts_int_program_t *program, int rx, buff
 
     /* Although this uses floating point arithmetic, the values are backed by integers
      * Transport buffer fullness does not need to be exact */
-    double cur_pcr = TS_START + w->packets_written * 8.0 * TS_PACKET_SIZE / w->ts_muxrate;
+    double cur_pcr = get_pcr_double( w, 0 );
     if( buffer->last_byte_removal_time == 0.0 )
     {
         buffer->last_byte_removal_time = cur_pcr;
@@ -230,11 +240,6 @@ static void drip_buffer( ts_writer_t *w, ts_int_program_t *program, int rx, buff
     buffer->last_byte_removal_time = next_pcr - offset;
 
     buffer->cur_buf = MAX( buffer->cur_buf, 0 );
-}
-
-static int64_t get_pcr( ts_writer_t *w, double offset )
-{
-    return (int64_t)((8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) * TS_CLOCK + 0.5) + TS_START * TS_CLOCK;
 }
 
 static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *program, ts_int_pes_t *pes,
@@ -269,7 +274,7 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
 
     if( flags )
     {
-        int64_t pcr = get_pcr( w, 7 ); /* 7 bytes until end of PCR field */
+        int64_t pcr = get_pcr_int( w, 7 ); /* 7 bytes until end of PCR field */
         bs_write1( &q, discontinuity ); // discontinuity_indicator
         bs_write1( &q, random_access ); // random_access_indicator
         bs_write1( &q, priority );  // elementary_stream_priority_indicator
@@ -639,8 +644,7 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
 static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, int first )
 {
     // TODO make this work with multiple programs
-    double cur_pcr = w->packets_written * 8.0 * TS_PACKET_SIZE / w->ts_muxrate;
-    cur_pcr += TS_START;
+    double cur_pcr = get_pcr_double( w, 0 );
     if( (uint64_t)(cur_pcr * TS_CLOCK) - w->last_pat >= w->pat_period * 27000LL || first )
     {
         /* Although it is not in line with the mux strategy it is good practice to write PAT and PMT together */
@@ -1620,7 +1624,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
     int video_found = 0;
     int64_t pcr_stop = 0;
 
-    cur_pcr = get_pcr( w, 0 );
+    cur_pcr = get_pcr_int( w, 0 );
 
     for( int i = 0; i < w->num_buffered_frames; i++ )
     {
@@ -1652,7 +1656,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         if( program->num_queued_pmt && w->tb.cur_buf == 0.0 )
         {
             eject_queued_pmt( w, program, s );
-            cur_pcr = get_pcr( w, 0 );
+            cur_pcr = get_pcr_int( w, 0 );
             continue;
         }
 
@@ -1818,7 +1822,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             else if( increase_pcr( w, 1, 1 ) < 0 )
                 return -1; /* write imaginary packet in capped vbr mode */
         }
-        cur_pcr = get_pcr( w, 0 );
+        cur_pcr = get_pcr_int( w, 0 );
     }
 
     bs_flush( s );
@@ -1962,7 +1966,7 @@ int increase_pcr( ts_writer_t *w, int num_packets, int imaginary )
             w->pcr_list = temp;
         }
 
-        pcr = get_pcr( w, 0 );
+        pcr = get_pcr_int( w, 0 );
 
         w->pcr_list[w->num_pcrs++] = pcr;
     }
