@@ -998,8 +998,6 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         else if( cur_stream->stream_format == LIBMPEGTS_AUDIO_AC3 || cur_stream->stream_format == LIBMPEGTS_AUDIO_EAC3 )
         {
             cur_stream->rx = MISC_AUDIO_RXN;
-            /* The spec is not at all clear whether E-AC3 uses these models as well.
-             * Let's assume nobody will send ultra high bitrate E-AC3 */
             cur_stream->mb.buf_size = w->ts_type == TS_TYPE_ATSC || w->ts_type == TS_TYPE_CABLELABS ? AC3_BS_ATSC : AC3_BS_DVB;
         }
 
