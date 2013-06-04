@@ -266,7 +266,7 @@ typedef struct
 
     int64_t video_dts;
 
-    //sdt_program_ctx_t *sdt_ctx;
+    sdt_program_ctx_t sdt_ctx;
     int is_3dtv;
 
     int sb_leak_rate;
@@ -298,6 +298,7 @@ struct ts_writer_t
 
     int pat_period;
     int pcr_period;
+    int sdt_period;
     int first_input;
 
     int pat_version;

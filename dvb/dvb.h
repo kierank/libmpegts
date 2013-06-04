@@ -44,6 +44,7 @@
 #define TDT_TID         0x70
 
 /* Default Retransmit times (ms) */
+#define SDT_MAX_RETRANS_TIME          2000
 #define EIT_MAX_RETRANS_TIME          2000
 #define EIT_OTHER_TS_MAX_RETRANS_TIME 10000
 #define TDT_MAX_RETRANS_TIME          25000
@@ -62,7 +63,7 @@ void write_teletext_descriptor( bs_t *s, ts_int_stream_t *stream, int vbi );
 void write_vbi_descriptor( bs_t *s, ts_int_stream_t *stream );
 
 int write_nit( ts_writer_t *w );
-//void write_sdt( ts_writer_t *w );
+int write_sdt( ts_writer_t *w );
 //void write_eit( ts_writer_t *w );
 int write_tdt( ts_writer_t *w );
 

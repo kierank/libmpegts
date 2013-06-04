@@ -644,15 +644,22 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
 static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, int first )
 {
     // TODO make this work with multiple programs
-    double cur_pcr = get_pcr_double( w, 0 );
-    if( (uint64_t)(cur_pcr * TS_CLOCK) - w->last_pat >= w->pat_period * 27000LL || first )
+    int64_t cur_pcr = get_pcr_int( w, 0 );
+    if( cur_pcr - w->last_pat >= w->pat_period * 27000LL || first )
     {
         /* Although it is not in line with the mux strategy it is good practice to write PAT and PMT together */
-        w->last_pat = (uint64_t)(cur_pcr * 27000000LL);
+        w->last_pat = cur_pcr;
         write_pat( w );          // FIXME handle failure
         write_pmt( w, program ); // FIXME handle failure
     }
 
+    cur_pcr = get_pcr_int( w, 0 );
+
+    if( w->sdt && ( cur_pcr - w->last_sdt >= w->sdt_period * 27000LL || first ) )
+    {
+        w->last_sdt = cur_pcr;
+        write_sdt( w );
+    }
 }
 
 /* DVB / Blu-Ray Service Information */
@@ -915,6 +922,28 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
     cur_program->sb_size = params->programs[0].sb_size;
     cur_program->video_dts = -1;
 
+    cur_program->sdt_ctx.service_type = params->programs[0].sdt.service_type;
+    if( params->programs[0].sdt.service_name )
+    {
+        cur_program->sdt_ctx.service_name = malloc( strlen( params->programs[0].sdt.service_name ) + 1 );
+        if( !cur_program->sdt_ctx.service_name )
+        {
+            fprintf( stderr, "Malloc failed\n" );
+            return -1;
+        }
+        strcpy( cur_program->sdt_ctx.service_name, params->programs[0].sdt.service_name );
+    }
+    if( params->programs[0].sdt.provider_name )
+    {
+        cur_program->sdt_ctx.provider_name = malloc( strlen( params->programs[0].sdt.provider_name ) + 1 );
+        if( !cur_program->sdt_ctx.provider_name )
+        {
+            fprintf( stderr, "Malloc failed\n" );
+            return -1;
+        }
+        strcpy( cur_program->sdt_ctx.provider_name, params->programs[0].sdt.provider_name );
+    }
+
     for( int i = 0; i < params->programs[0].num_streams; i++ )
     {
         ts_stream_t *stream_in = &params->programs[0].streams[i];
@@ -1028,6 +1057,7 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
 
     w->pcr_period = params->pcr_period ? params->pcr_period : PCR_MAX_RETRANS_TIME;
     w->pat_period = params->pat_period ? params->pat_period : PAT_MAX_RETRANS_TIME;
+    w->sdt_period = params->sdt_period ? params->sdt_period : SDT_MAX_RETRANS_TIME;
 
     w->network_id = params->network_id ? params->network_id : DEFAULT_NID;
 
@@ -1456,6 +1486,24 @@ int ts_setup_dvb_vbi( ts_writer_t *w, int pid, int num_vbis, ts_dvb_vbi_t *vbis 
     return 0;
 }
 
+int ts_setup_sdt( ts_writer_t *w )
+{
+    w->sdt = calloc( 1, sizeof(*w->sdt) );
+    if( !w->sdt )
+    {
+        fprintf( stderr, "malloc failed\n" );
+        return -1;
+    }
+
+    return 0;
+}
+
+void ts_remove_sdt( ts_writer_t *w )
+{
+    free( w->sdt );
+    w->sdt = NULL;
+}
+
 int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t **out, int *len, int64_t **pcr_list )
 {
     ts_int_program_t *program = w->programs[0];
@@ -1863,8 +1911,18 @@ int ts_close_writer( ts_writer_t *w )
                 free( w->programs[i]->streams[j]->dvb_ttx_ctx );
             if( w->programs[i]->streams[j]->dvb_vbi_ctx )
                 free( w->programs[i]->streams[j]->dvb_vbi_ctx );
+
             free( w->programs[i]->streams[j] );
         }
+
+        for( int j = 0; j < w->programs[i]->num_queued_pmt; j++ )
+            free( w->programs[i]->pmt_packets[j] );
+        if( w->programs[i]->pmt_packets )
+            free( w->programs[i]->pmt_packets );
+        if( w->programs[i]->sdt_ctx.service_name )
+            free( w->programs[i]->sdt_ctx.service_name );
+        if( w->programs[i]->sdt_ctx.provider_name )
+            free( w->programs[i]->sdt_ctx.provider_name );
 
         free( w->programs[i] );
     }

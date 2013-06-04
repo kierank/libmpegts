@@ -115,24 +115,24 @@ void write_vbi_descriptor( bs_t *s, ts_int_stream_t *stream )
     write_bytes( s, temp, bs_pos( &q ) >> 3 );
 }
 
-/*
-static void write_service_descriptor( bs_t *s )
-{
-    bs_write( s, 8, DVB_SERVICE_DESCRIPTOR_TAG );              // descriptor_tag
-    bs_write( s, 8, 0 );   // descriptor_length
-    bs_write( s, 8, 0 );              // service_type
-    bs_write( s, 8, 0 ); // service_provider_name_length
 
-    // TODO support more character codes
+static void write_service_descriptor( bs_t *s, int service_type, char *provider_name, char *service_name )
+{
+    int provider_name_length = strlen( provider_name );
+    int service_name_length = strlen( service_name );
+
+    bs_write( s, 8, DVB_SERVICE_DESCRIPTOR_TAG ); // descriptor_tag
+    bs_write( s, 8, provider_name_length + service_name_length + 3 ); // descriptor_length
+    bs_write( s, 8, service_type );               // service_type
+
+    bs_write( s, 8, provider_name_length ); // service_provider_name_length
     while( *provider_name != '\0' )
         bs_write( s, 8, *provider_name++ );
 
-    bs_write( s, 8, name_len ); // service_name_length
-
-    while( *name != '\0' )
-       bs_write( s, 8, *name++ );
+    bs_write( s, 8, service_name_length ); // service_name_length
+    while( *service_name != '\0' )
+       bs_write( s, 8, *service_name++ );
 }
-*/
 
 /* DVB Service Information */
 int write_nit( ts_writer_t *w )
@@ -182,68 +182,135 @@ int write_nit( ts_writer_t *w )
 
     return 0;
 }
-#if 0
+
 /* "The SDT contains data describing the services in the system e.g. names of services, the service provider, etc" */
-void write_sdt( ts_writer_t *w )
+int write_sdt( ts_writer_t *w )
 {
-    uint64_t start;
-    int i;
+    int start;
+    uint8_t *sdt_buf = NULL, *sdt_buf2 = NULL;
+    int buf_size = 0;
+    int ret = 0;
+    int section_length;
 
     bs_t *s = &w->out.bs;
+    bs_t q, r;
 
+    /* Estimate size of buffer */
+    for( int i = 0; i < w->num_programs; i++ )
+    {
+        buf_size += strlen( w->programs[i]->sdt_ctx.provider_name );
+        buf_size += strlen( w->programs[i]->sdt_ctx.service_name );
+    }
+
+    buf_size <<= 1;
+    sdt_buf = malloc( buf_size );
+    if( !sdt_buf )
+    {
+        fprintf( stderr, "malloc failed" );
+        goto end;
+    }
+
+    sdt_buf2 = malloc( buf_size );
+    if( !sdt_buf2 )
+    {
+        fprintf( stderr, "malloc failed" );
+        goto end;
+    }
+
+    start = bs_pos( s );
     write_packet_header( w, s, 1, SDT_PID, PAYLOAD_ONLY, &w->sdt->cc );
     bs_write( s, 8, 0 );         // pointer field
 
-    start = bs_pos( s );
-    bs_write( s, 8, SDT_TID );   // table_id
-    bs_write1( s, 1 );           // section_syntax_indicator
-    bs_write1( s, 1 );           // reserved_future_use
-    bs_write1( s, 1 );           // reserved
+    bs_init( &q, sdt_buf, buf_size );
+    bs_write( &q, 8, SDT_TID );   // table_id
+    bs_write1( &q, 1 );           // section_syntax_indicator
+    bs_write1( &q, 1 );           // reserved_future_use
+    bs_write( &q, 2, 0x3 );       // reserved
 
-// TODO temp
+    bs_init( &r, sdt_buf2, buf_size );
+    bs_write( &r, 16, w->ts_id ); // transport_stream_id
+    bs_write( &r, 2, 0x3 );       // reserved
+    bs_write( &r, 5, 0 );         // version_number
+    bs_write1( &r, 1 );           // current_next_indicator
+    bs_write( &r, 8, 0 );         // section_number
+    bs_write( &r, 8, 0 );         // last_section_number
+    bs_write( &r, 16, w->network_id ); // original_network_id
+    bs_write( &r, 8, 0xff );      // reserved_future_use
 
-    bs_write( s, 12, len );      // section_length
-    bs_write( s, 16, w->ts_id ); // transport_stream_id
-    bs_write( s, 2, 0x03 );      // reserved
-    bs_write( s, 5, 0 );         // version_number
-    bs_write1( s, 1 );           // current_next_indicator
-    bs_write( s, 8, 0 );         // section_number
-    bs_write( s, 8, 0 );         // last_section_number
-    bs_write( s, 8, w->nid );    // original_network_id
-    bs_write( s, 8, 0xff );      // reserved_future_use
-
-    for( i = 0; i < w->num_programs; i++ )
+    for( int i = 0; i < w->num_programs; i++ )
     {
-        bs_write( s, 16, w->programs[i]->program_num & 0xffff ); // service_id (equivalent to program_number)
-        bs_write( s, 6, 0x7f ); // reserved_future_use
-        bs_write1( s, 0 );      // EIT_schedule_flag
-        bs_write1( s, 1 );      // EIT_present_following_flag
-        bs_write( s, 3, 0 );    // running_status
-        bs_write1( s, 1 );      // free_CA_mode
+        sdt_program_ctx_t *sdt_ctx = &w->programs[i]->sdt_ctx;
 
-        int provider_name_len = strlen( w->programs[i]->sdt_ctx->provider_name );
-        int name_len = strlen( w->programs[i]->sdt_ctx->service_name );
+        bs_write( &r, 16, w->programs[i]->program_num & 0xffff ); // service_id (equivalent to program_number)
+        bs_write( &r, 6, 0x3f ); // reserved_future_use
+        bs_write1( &r, 0 );      // EIT_schedule_flag
+        bs_write1( &r, 0 );      // EIT_present_following_flag
+        bs_write( &r, 3, 4 );    // running_status
+        bs_write1( &r, 0 );      // free_CA_mode
 
-        char *provider_name = w->programs[i]->sdt_ctx->provider_name;
-        char *name = w->programs[i]->sdt_ctx->service_name;
+        int provider_name_len = strlen( sdt_ctx->provider_name );
+        int service_name_len = strlen( sdt_ctx->service_name );
 
-        int descriptors_len = 5 + provider_name_len + name_len;
-        bs_write( s, 12, descriptors_len ); // descriptors_loop_length
+        char *provider_name = sdt_ctx->provider_name;
+        char *service_name = sdt_ctx->service_name;
+
+        int descriptors_len = 5 + provider_name_len + service_name_len;
+        bs_write( &r, 12, descriptors_len ); // descriptors_loop_length
 
         // service descriptor (mandatory for DVB)
-
+        write_service_descriptor( &r, sdt_ctx->service_type, provider_name, service_name );
 
         // other descriptor(s) here
     }
 
-    bs_flush( s );
-    write_crc( s, start );
+    /* section length includes crc */
+    section_length = (bs_pos( &r ) >> 3) + 4;
+    bs_write( &q, 12, section_length & 0x3ff );    // section_length
 
-    // -40 to include header and pointer field
-    write_padding( s, start - 40 );
-    increase_pcr( w, 1 );
+    /* write main chunk into sdt array */
+    bs_flush( &r );
+    write_bytes( &q, sdt_buf2, bs_pos( &r ) >> 3 );
+
+    /* take crc of the whole service description section */
+    bs_flush( &q );
+    write_crc( &q, 0 );
+
+    int length = bs_pos( &q ) >> 3;
+    int bytes_left = TS_PACKET_SIZE - (( bs_pos( s ) - start ) >> 3);
+
+    bs_flush( &q );
+    write_bytes( s, sdt_buf, MIN( bytes_left, length ) );
+    bs_flush( s );
+
+    write_padding( s, start );
+    if( increase_pcr( w, 1, 0 ) < 0 )
+        goto end;
+
+    int pos = MIN( bytes_left, length );
+    length -= pos;
+
+    bytes_left = 184;
+
+    /* keep writing SDT packets */
+    while( length > bytes_left )
+    {
+        start = bs_pos( s );
+        write_packet_header( w, s, 1, SDT_PID, PAYLOAD_ONLY, &w->sdt->cc );
+        write_bytes( s, &sdt_buf[pos], MIN( bytes_left, length ) );
+        write_padding( s, start );
+        pos += MIN( bytes_left, length );
+        length -= MIN( bytes_left, length );
+
+        if( increase_pcr( w, 1, 0 ) < 0 )
+            goto end;
+    }
+
+end:
+    free( sdt_buf );
+    free( sdt_buf2 );
+    return ret;
 }
-#endif
+
 #if 0
 // FIXME
 // "the EIT contains data concerning events or programmes such as event name, start time, duration, etc.; "

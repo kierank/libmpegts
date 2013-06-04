@@ -271,8 +271,12 @@ typedef struct
 
     int is_3dtv;
 
+    /* ATSC */
     int sb_leak_rate;
     int sb_size;
+
+    /* DVB */
+    sdt_program_ctx_t sdt;
 } ts_program_t;
 
 /**** Functions ****/
@@ -317,6 +321,7 @@ typedef struct ts_main_t
 
     // FIXME dvb land
     int network_id;
+    int sdt_period;
     int nit_period;
     int tdt_period;
     int tot_period;
@@ -508,15 +513,15 @@ typedef struct
 
 int ts_setup_dvb_vbi( ts_writer_t *w, int pid, int num_vbis, ts_dvb_vbi_t *vbis );
 
-/* SDT
- *  */
+/* Service Description Table
+ *
+ * ts_setup_sdt enables SDT
+ * ts_remove_sdt disables SDT
+ *
+ */
 
 int ts_setup_sdt( ts_writer_t *w );
-void ts_update_sdt( ts_writer_t *w );
 void ts_remove_sdt( ts_writer_t *w );
-
-int ts_program_setup_sdt( ts_writer_t *w );
-void ts_program_update_sdt( ts_writer_t *w );
 
 /* Network Information Table */
 
