@@ -292,10 +292,10 @@ int write_sdt( ts_writer_t *w )
     bytes_left = 184;
 
     /* keep writing SDT packets */
-    while( length > bytes_left )
+    while( length > 0 )
     {
         start = bs_pos( s );
-        write_packet_header( w, s, 1, SDT_PID, PAYLOAD_ONLY, &w->sdt->cc );
+        write_packet_header( w, s, 0, SDT_PID, PAYLOAD_ONLY, &w->sdt->cc );
         write_bytes( s, &sdt_buf[pos], MIN( bytes_left, length ) );
         write_padding( s, start );
         pos += MIN( bytes_left, length );

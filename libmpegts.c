@@ -608,7 +608,7 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
     bytes_left = 184;
 
     /* queue up pmt packets for spaced output */
-    while( length > bytes_left )
+    while( length > 0 )
     {
         bs_t z;
 
@@ -1934,6 +1934,9 @@ int ts_close_writer( ts_writer_t *w )
     }
 
     free( w->buffered_frames );
+
+    if( w->sdt )
+        free( w->sdt );
 
     if( w->pcr_list )
         free( w->pcr_list );
