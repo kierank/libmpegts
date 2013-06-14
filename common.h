@@ -49,6 +49,9 @@
 #define TS_CLOCK       27000000LL
 #define TS_START       10
 
+/* FIXME: arbitrary offset to arrival time to make sure packets arrive before DTS */
+#define TS_ARRIVAL_OFFSET 135000
+
 // arbitrary
 #define MAX_PROGRAMS   100
 #define MAX_STREAMS    100

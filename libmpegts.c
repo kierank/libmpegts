@@ -1624,6 +1624,12 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         else
             new_pes[i]->initial_arrival_time = (new_pes[i]->dts - stream->max_frame_size) * 300; /* earliest that a frame can arrive */
 
+        if( !IS_VIDEO( stream ) )
+            new_pes[i]->final_arrival_time = new_pes[i]->dts * 300;
+
+        /* HACK: offset the final arrival times by a small amount (0.005 sec) to act as a safety margin */
+        new_pes[i]->final_arrival_time -= TS_ARRIVAL_OFFSET;
+
         /* probe the first normal looking ac3 frame if extra data is needed */
         if( !stream->atsc_ac3_ctx && stream->stream_format == LIBMPEGTS_AUDIO_AC3 &&
             ( w->ts_type == TS_TYPE_CABLELABS || w->ts_type == TS_TYPE_ATSC ) &&
@@ -1715,11 +1721,17 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         {
             if( !pes || queued_pes[i]->dts < pes->dts )
             {
+                double drip_rate = (double)queued_pes[i]->size / ( queued_pes[i]->final_arrival_time - queued_pes[i]->initial_arrival_time );
+                double remaining_drip_rate = (double)queued_pes[i]->bytes_left / (queued_pes[i]->final_arrival_time - cur_pcr);
+
                 stream = queued_pes[i]->stream;
 
                 /* exclude video packets */
-                if( !IS_VIDEO( stream ) && cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 )
+                if( !IS_VIDEO( stream ) && cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
+                    ( drip_rate < remaining_drip_rate || queued_pes[i]->final_arrival_time < cur_pcr ) )
+                {
                     pes = queued_pes[i];
+                }
             }
         }
 
@@ -1728,8 +1740,15 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         {
             for( int i = 0; i < w->num_buffered_frames; i++ )
             {
+                double drip_rate = (double)queued_pes[i]->size / ( queued_pes[i]->final_arrival_time - queued_pes[i]->initial_arrival_time );
+                double remaining_drip_rate = (double)queued_pes[i]->bytes_left / (queued_pes[i]->final_arrival_time - cur_pcr);
+
+                //printf("\n drip %f remaining %f \n", drip_rate, remaining_drip_rate );
+
                 stream = queued_pes[i]->stream;
-                if( IS_VIDEO( stream ) && cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 )
+
+                if( IS_VIDEO( stream ) && cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
+                    ( drip_rate < remaining_drip_rate || queued_pes[i]->final_arrival_time < cur_pcr ) )
                 {
                     pes = queued_pes[i];
                     break;
@@ -1741,13 +1760,6 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         {
             stream = pes->stream;
             pes_start = pes->data == pes->cur_pos; /* flag if packet contains pes header */
-#if 0
-            if( IS_VIDEO( stream ) && pes_start )
-            {
-                printf("\n last pcr delta %"PRIi64" \n", get_pcr( w, 0 ) - stream->last_pkt_pcr );
-            }
-#endif
-            stream->last_pkt_pcr = cur_pcr;
 
             if( pcr_stop < cur_pcr )
                 fprintf( stderr, "\n pcr_stop is less than pcr pid: %i pcr_stop: %"PRIi64" pcr: %"PRIi64" \n", pes->stream->pid, pcr_stop, cur_pcr );
@@ -1756,10 +1768,6 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             if( pes->dts * 300 < cur_pcr )
                 fprintf( stderr, "\n dts is less than pcr pid: %i dts: %"PRIi64" pcr: %"PRIi64" \n", pes->stream->pid, pes->dts*300, cur_pcr );
 
-#if 0
-            if( IS_VIDEO( stream ) && pes->cpb_initial_arrival_time > cur_pcr )
-                fprintf( stderr, "\n initial arrival time is greater than than pcr \n" );
-#endif
             bs_init( &q, temp, 150 );
 
             if( program->pcr_stream == stream && pes_start )
@@ -1775,6 +1783,15 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 else if( write_pcr_empty( w, program, 0 ) < 0 )
                     return -1;
             }
+
+#if 0
+            if( IS_VIDEO( stream ) && pes_start )
+            {
+                printf("\n last pcr delta %"PRIi64" \n", get_pcr( w, 0 ) - stream->last_pkt_pcr );
+            }
+#endif
+
+            stream->last_pkt_pcr = cur_pcr;
 
             if( write_adapt_field )
             {
