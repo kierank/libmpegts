@@ -336,7 +336,7 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params );
  * TODO: implement versioning so other parameters can be updated
  *
  */
-int ts_update_transport_stream( ts_writer_t *w, ts_main_t *params );
+void ts_update_transport_stream( ts_writer_t *w, ts_main_t *params );
 
 /**** Additional Codec-Specific functions ****/
 /* Many formats require extra information. Setup the relevant information using the following functions */

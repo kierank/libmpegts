@@ -1089,7 +1089,7 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
     return 0;
 }
 
-int ts_update_transport_stream( ts_writer_t *w, ts_main_t *params )
+void ts_update_transport_stream( ts_writer_t *w, ts_main_t *params )
 {
     int64_t cur_pcr = get_pcr_int( w, 0 );
     if( params->muxrate != w->ts_muxrate )
