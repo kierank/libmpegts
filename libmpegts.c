@@ -187,6 +187,16 @@ static void write_iso_lang_descriptor( bs_t *s, ts_int_stream_t *stream )
 }
 
 /**** PCR functions ****/
+static int64_t get_pcr_int( ts_writer_t *w, double offset )
+{
+    return (int64_t)((8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) * TS_CLOCK + 0.5) + w->pcr_start;
+}
+
+static double get_pcr_double( ts_writer_t *w, double offset )
+{
+    return (8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) + (double)w->pcr_start / TS_CLOCK;
+}
+
 static int check_pcr( ts_writer_t *w, ts_int_program_t *program )
 {
     // if the next packet written goes over the max pcr retransmit boundary, write the pcr in the next packet
@@ -196,16 +206,6 @@ static int check_pcr( ts_writer_t *w, ts_int_program_t *program )
         return 1;
 
     return 0;
-}
-
-static int64_t get_pcr_int( ts_writer_t *w, double offset )
-{
-    return (int64_t)((8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) * TS_CLOCK + 0.5) + w->pcr_start;
-}
-
-static double get_pcr_double( ts_writer_t *w, double offset )
-{
-    return (8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) + (double)w->pcr_start / TS_CLOCK;
 }
 
 /**** Buffer management ****/
