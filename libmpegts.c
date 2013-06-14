@@ -190,14 +190,10 @@ static void write_iso_lang_descriptor( bs_t *s, ts_int_stream_t *stream )
 static int check_pcr( ts_writer_t *w, ts_int_program_t *program )
 {
     // if the next packet written goes over the max pcr retransmit boundary, write the pcr in the next packet
-    double next_pkt_pcr = ((w->packets_written * TS_PACKET_SIZE) + (TS_PACKET_SIZE + 7)) * 8.0 / w->ts_muxrate -
-                          (double)program->last_pcr / TS_CLOCK;
-    next_pkt_pcr += TS_START;
+    int64_t next_pkt_pcr = get_pcr_int( w, (TS_PACKET_SIZE + 7) * 8 ) - program->last_pcr;
 
-    if( next_pkt_pcr >= (double)w->pcr_period / 1000 )
-    {
+    if( next_pkt_pcr >= w->pcr_period * (TS_CLOCK/1000) )
         return 1;
-    }
 
     return 0;
 }
@@ -2025,7 +2021,7 @@ int increase_pcr( ts_writer_t *w, int num_packets, int imaginary )
 
     // TODO do this for all programs
     ts_int_program_t *program = w->programs[0];
-    double next_pcr = TS_START + (w->packets_written + num_packets) * 8.0 * TS_PACKET_SIZE / w->ts_muxrate;
+    double next_pcr = get_pcr_double( w, num_packets * TS_PACKET_SIZE );
     /* buffer drip (TODO: all buffers?) */
     drip_buffer( w, program, w->rx_sys, &w->tb, next_pcr );
     for( int i = 0; i < program->num_streams; i++ )
@@ -2037,6 +2033,7 @@ int increase_pcr( ts_writer_t *w, int num_packets, int imaginary )
 
     if( !imaginary )
     {
+        // FIXME this is wrong for multiple packets
         if( w->num_pcrs > w->pcr_list_alloced )
         {
             temp = realloc( w->pcr_list, w->pcr_list_alloced * 2 * sizeof(int64_t) );
