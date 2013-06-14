@@ -48,6 +48,7 @@
 #define TS_PACKET_SIZE 188
 #define TS_CLOCK       27000000LL
 #define TS_START       10
+#define TIMESTAMP_CLOCK 90000LL
 
 // arbitrary
 #define MAX_PROGRAMS   100
@@ -284,6 +285,7 @@ struct ts_writer_t
 
     uint64_t bytes_written;
     uint64_t packets_written;
+    uint64_t pcr_start;
 
     int ts_type;
     int ts_id;

@@ -204,12 +204,12 @@ static int check_pcr( ts_writer_t *w, ts_int_program_t *program )
 
 static int64_t get_pcr_int( ts_writer_t *w, double offset )
 {
-    return (int64_t)((8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) * TS_CLOCK + 0.5) + TS_START * TS_CLOCK;
+    return (int64_t)((8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) * TS_CLOCK + 0.5) + w->pcr_start;
 }
 
 static double get_pcr_double( ts_writer_t *w, double offset )
 {
-    return (8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) + TS_START;
+    return (8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) + (double)w->pcr_start / TS_CLOCK;
 }
 
 /**** Buffer management ****/
@@ -853,6 +853,20 @@ static int check_bitstream( ts_writer_t *w )
     return 0;
 }
 
+/* set updatable ts parameters */
+static void update_ts_params( ts_writer_t *w, ts_main_t *params )
+{
+    w->ts_muxrate = params->muxrate;
+    w->cbr = params->cbr;
+    w->legacy_constraints = params->legacy_constraints;
+
+    w->pcr_period = params->pcr_period ? params->pcr_period : PCR_MAX_RETRANS_TIME;
+    w->pat_period = params->pat_period ? params->pat_period : PAT_MAX_RETRANS_TIME;
+    w->sdt_period = params->sdt_period ? params->sdt_period : SDT_MAX_RETRANS_TIME;
+
+    w->r_sys = MAX( R_SYS_DEFAULT, (double)w->ts_muxrate / 500 );
+}
+
 ts_writer_t *ts_create_writer( void )
 {
     ts_writer_t *w = calloc( 1, sizeof(*w) );
@@ -1048,22 +1062,16 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         cur_program->pcr_stream = pcr_stream;
     }
 
-    w->ts_id = params->ts_id;
-    w->ts_muxrate = params->muxrate;
-    w->cbr = params->cbr;
-    w->ts_type = params->ts_type;
+    update_ts_params( w, params );
+
     w->network_pid = params->network_pid;
-    w->legacy_constraints = params->legacy_constraints;
-
-    w->pcr_period = params->pcr_period ? params->pcr_period : PCR_MAX_RETRANS_TIME;
-    w->pat_period = params->pat_period ? params->pat_period : PAT_MAX_RETRANS_TIME;
-    w->sdt_period = params->sdt_period ? params->sdt_period : SDT_MAX_RETRANS_TIME;
-
+    w->ts_type = params->ts_type;
     w->network_id = params->network_id ? params->network_id : DEFAULT_NID;
-
+    w->ts_id = params->ts_id;
     w->tb.buf_size = TB_SIZE;
     w->rx_sys = RX_SYS;
-    w->r_sys = MAX( R_SYS_DEFAULT, (double)w->ts_muxrate / 500 );
+
+    w->pcr_start = TS_START * TS_CLOCK;
 
     // FIXME realloc if necessary
 
@@ -1079,6 +1087,17 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         return -1;
 
     return 0;
+}
+
+int ts_update_transport_stream( ts_writer_t *w, ts_main_t *params )
+{
+    int64_t cur_pcr = get_pcr_int( w, 0 );
+    if( params->muxrate != w->ts_muxrate )
+    {
+        update_ts_params( w, params );
+        w->packets_written = 0;
+        w->pcr_start = cur_pcr;
+    }
 }
 
 /* Codec-specific features */
@@ -1601,14 +1620,14 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         new_pes[i]->stream = stream;
         new_pes[i]->random_access = !!frames[i].random_access;
         new_pes[i]->priority = !!frames[i].priority;
-        new_pes[i]->dts = frames[i].dts + TS_START * 90000LL;
-        new_pes[i]->pts = frames[i].pts + TS_START * 90000LL;
+        new_pes[i]->dts = frames[i].dts + TS_START * TIMESTAMP_CLOCK;
+        new_pes[i]->pts = frames[i].pts + TS_START * TIMESTAMP_CLOCK;
 
         if( IS_VIDEO( stream ) )
         {
             new_pes[i]->frame_type = frames[i].frame_type;
-            new_pes[i]->initial_arrival_time = frames[i].cpb_initial_arrival_time + TS_START * 27000000LL;
-            new_pes[i]->final_arrival_time = frames[i].cpb_final_arrival_time + TS_START * 27000000LL;
+            new_pes[i]->initial_arrival_time = frames[i].cpb_initial_arrival_time + TS_START * TS_CLOCK;
+            new_pes[i]->final_arrival_time = frames[i].cpb_final_arrival_time + TS_START * TS_CLOCK;
             new_pes[i]->ref_pic_idc = frames[i].ref_pic_idc;
             new_pes[i]->write_pulldown_info = frames[i].write_pulldown_info;
             new_pes[i]->pic_struct = frames[i].pic_struct;
