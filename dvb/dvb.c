@@ -195,6 +195,8 @@ int write_sdt( ts_writer_t *w )
     bs_t *s = &w->out.bs;
     bs_t q, r;
 
+    buf_size = 200;
+
     /* Estimate size of buffer */
     for( int i = 0; i < w->num_programs; i++ )
     {
