@@ -1627,9 +1627,6 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         if( !IS_VIDEO( stream ) )
             new_pes[i]->final_arrival_time = new_pes[i]->dts * 300;
 
-        /* HACK: offset the final arrival times by a small amount (0.005 sec) to act as a safety margin */
-        new_pes[i]->final_arrival_time -= TS_ARRIVAL_OFFSET;
-
         /* probe the first normal looking ac3 frame if extra data is needed */
         if( !stream->atsc_ac3_ctx && stream->stream_format == LIBMPEGTS_AUDIO_AC3 &&
             ( w->ts_type == TS_TYPE_CABLELABS || w->ts_type == TS_TYPE_ATSC ) &&
@@ -1719,15 +1716,16 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         /* Check all the non-video packets first */
         for( int i = 0; i < w->num_buffered_frames; i++ )
         {
-            if( !pes || queued_pes[i]->dts < pes->dts )
+            stream = queued_pes[i]->stream;
+            if( (!pes || queued_pes[i]->dts < pes->dts) && !IS_VIDEO( stream ) )
             {
-                double drip_rate = (double)queued_pes[i]->size / ( queued_pes[i]->final_arrival_time - queued_pes[i]->initial_arrival_time );
-                double remaining_drip_rate = (double)queued_pes[i]->bytes_left / (queued_pes[i]->final_arrival_time - cur_pcr);
-
-                stream = queued_pes[i]->stream;
+                int total_packets = (queued_pes[i]->size + 183) / 184;
+                int packets_left = (queued_pes[i]->bytes_left + 183) / 184;
+                double drip_rate = (double)total_packets/ ( queued_pes[i]->final_arrival_time - queued_pes[i]->initial_arrival_time );
+                double remaining_drip_rate = (double)packets_left / (queued_pes[i]->final_arrival_time - cur_pcr);
 
                 /* exclude video packets */
-                if( !IS_VIDEO( stream ) && cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
+                if( cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
                     ( drip_rate < remaining_drip_rate || queued_pes[i]->final_arrival_time < cur_pcr ) )
                 {
                     pes = queued_pes[i];
@@ -1740,18 +1738,20 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         {
             for( int i = 0; i < w->num_buffered_frames; i++ )
             {
-                double drip_rate = (double)queued_pes[i]->size / ( queued_pes[i]->final_arrival_time - queued_pes[i]->initial_arrival_time );
-                double remaining_drip_rate = (double)queued_pes[i]->bytes_left / (queued_pes[i]->final_arrival_time - cur_pcr);
-
-                //printf("\n drip %f remaining %f \n", drip_rate, remaining_drip_rate );
-
                 stream = queued_pes[i]->stream;
-
-                if( IS_VIDEO( stream ) && cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
-                    ( drip_rate < remaining_drip_rate || queued_pes[i]->final_arrival_time < cur_pcr ) )
+                if( IS_VIDEO( stream ) )
                 {
-                    pes = queued_pes[i];
-                    break;
+                    int total_packets = (queued_pes[i]->size + 183) / 184;
+                    int packets_left = (queued_pes[i]->bytes_left + 183) / 184;
+                    double drip_rate = (double)total_packets / ( queued_pes[i]->final_arrival_time - queued_pes[i]->initial_arrival_time );
+                    double remaining_drip_rate = (double)packets_left / (queued_pes[i]->final_arrival_time - cur_pcr );
+
+                    if( cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
+                        ( drip_rate < remaining_drip_rate || queued_pes[i]->final_arrival_time < cur_pcr ) )
+                    {
+                        pes = queued_pes[i];
+                        break;
+                    }
                 }
             }
         }
