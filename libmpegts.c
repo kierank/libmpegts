@@ -28,6 +28,7 @@
 #include "smpte/smpte.h"
 #include "crc/crc.h"
 #include <math.h>
+#include <syslog.h>
 
 static const int steam_type_table[27][2] =
 {
@@ -1763,14 +1764,14 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
             if( pcr_stop < cur_pcr )
             {
-                syslog( LOG_ERR, "muxDtsIsLessThanPCR: PCR error - Check bitrate of components fits within muxrate \n" );
+                syslog( LOG_WARN, "muxDtsIsLessThanPCR: PCR error - Check bitrate of components fits within muxrate \n" );
                 //fprintf( stderr, "\n pcr_stop is less than pcr pid: %i pcr_stop: %"PRIi64" pcr: %"PRIi64" \n", pes->stream->pid, pcr_stop, cur_pcr );
             }
 
             // FIXME complain less
             if( pes->dts * 300 < cur_pcr )
             {
-                syslog( LOG_ERR, "muxDtsIsLessThanPCR: PCR error - Check bitrate of components fits within muxrate \n" );
+                syslog( LOG_WARN, "muxDtsIsLessThanPCR: PCR error - Check bitrate of components fits within muxrate \n" );
                 //fprintf( stderr, "\n dts is less than pcr pid: %i dts: %"PRIi64" pcr: %"PRIi64" \n", pes->stream->pid, pes->dts*300, cur_pcr );
             }
 
