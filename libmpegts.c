@@ -1762,11 +1762,17 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             pes_start = pes->data == pes->cur_pos; /* flag if packet contains pes header */
 
             if( pcr_stop < cur_pcr )
-                fprintf( stderr, "\n pcr_stop is less than pcr pid: %i pcr_stop: %"PRIi64" pcr: %"PRIi64" \n", pes->stream->pid, pcr_stop, cur_pcr );
+            {
+                syslog( LOG_ERR, "PCR ERROR - Check bitrate of components fits within muxrate \n" );
+                //fprintf( stderr, "\n pcr_stop is less than pcr pid: %i pcr_stop: %"PRIi64" pcr: %"PRIi64" \n", pes->stream->pid, pcr_stop, cur_pcr );
+            }
 
             // FIXME complain less
             if( pes->dts * 300 < cur_pcr )
-                fprintf( stderr, "\n dts is less than pcr pid: %i dts: %"PRIi64" pcr: %"PRIi64" \n", pes->stream->pid, pes->dts*300, cur_pcr );
+            {
+                syslog( LOG_ERR, "PCR ERROR - Check bitrate of components fits within muxrate \n" );
+                //fprintf( stderr, "\n dts is less than pcr pid: %i dts: %"PRIi64" pcr: %"PRIi64" \n", pes->stream->pid, pes->dts*300, cur_pcr );
+            }
 
             bs_init( &q, temp, 150 );
 
