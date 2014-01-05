@@ -1712,29 +1712,33 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         }
 
         // FIXME at low bitrates this might need tweaking
+        int need_pcr = check_pcr( w, program );
 
         /* Check all the non-video packets first */
-        for( int i = 0; i < w->num_buffered_frames; i++ )
+        if( !need_pcr )
         {
-            stream = queued_pes[i]->stream;
-            if( (!pes || queued_pes[i]->dts < pes->dts) && !IS_VIDEO( stream ) )
+            for( int i = 0; i < w->num_buffered_frames; i++ )
             {
-                int total_packets = (queued_pes[i]->size + 183) / 184;
-                int packets_left = (queued_pes[i]->bytes_left + 183) / 184;
-                double drip_rate = (double)total_packets/ ( queued_pes[i]->final_arrival_time - queued_pes[i]->initial_arrival_time );
-                double remaining_drip_rate = (double)packets_left / (queued_pes[i]->final_arrival_time - cur_pcr);
-
-                /* exclude video packets */
-                if( cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
-                    ( drip_rate < remaining_drip_rate || queued_pes[i]->final_arrival_time < cur_pcr ) )
+                stream = queued_pes[i]->stream;
+                if( (!pes || queued_pes[i]->dts < pes->dts) && !IS_VIDEO( stream ) )
                 {
-                    pes = queued_pes[i];
+                    int total_packets = (queued_pes[i]->size + 183) / 184;
+                    int packets_left = (queued_pes[i]->bytes_left + 183) / 184;
+                    double drip_rate = (double)total_packets/ ( queued_pes[i]->final_arrival_time - queued_pes[i]->initial_arrival_time );
+                    double remaining_drip_rate = (double)packets_left / (queued_pes[i]->final_arrival_time - cur_pcr);
+
+                    /* exclude video packets */
+                    if( cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
+                        ( drip_rate < remaining_drip_rate || queued_pes[i]->final_arrival_time < cur_pcr ) )
+                    {
+                        pes = queued_pes[i];
+                    }
                 }
             }
         }
 
         /* See if we can write a video packet if non-audio packets can't be written. */
-        if( !pes )
+        if( !pes || need_pcr )
         {
             for( int i = 0; i < w->num_buffered_frames; i++ )
             {
@@ -1746,8 +1750,9 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                     double drip_rate = (double)total_packets / ( queued_pes[i]->final_arrival_time - queued_pes[i]->initial_arrival_time );
                     double remaining_drip_rate = (double)packets_left / (queued_pes[i]->final_arrival_time - cur_pcr );
 
+                    /* Write a video packet anyway if we can put a PCR on it */
                     if( cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
-                        ( drip_rate < remaining_drip_rate || queued_pes[i]->final_arrival_time < cur_pcr ) )
+                        ( drip_rate < remaining_drip_rate || queued_pes[i]->final_arrival_time < cur_pcr || need_pcr ) )
                     {
                         pes = queued_pes[i];
                         break;
@@ -1868,8 +1873,6 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 free( pes );
             }
 
-            if( check_pcr( w, program ) && write_pcr_empty( w, program, 0 ) < 0 )
-                return -1;
             retransmit_psi_and_si( w, program, 0 );
         }
         else /* no packets can be written */
