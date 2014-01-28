@@ -641,11 +641,11 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
     return 0;
 }
 
-static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, int first )
+static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program )
 {
     // TODO make this work with multiple programs
     int64_t cur_pcr = get_pcr_int( w, 0 );
-    if( cur_pcr - w->last_pat >= w->pat_period * 27000LL || first )
+    if( cur_pcr - w->last_pat >= w->pat_period * 27000LL || !w->last_pat )
     {
         /* Although it is not in line with the mux strategy it is good practice to write PAT and PMT together */
         w->last_pat = cur_pcr;
@@ -655,7 +655,7 @@ static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, in
 
     cur_pcr = get_pcr_int( w, 0 );
 
-    if( w->sdt && ( cur_pcr - w->last_sdt >= w->sdt_period * 27000LL || first ) )
+    if( w->sdt && ( cur_pcr - w->last_sdt >= w->sdt_period * 27000LL || !w->last_sdt ) )
     {
         w->last_sdt = cur_pcr;
         write_sdt( w );
@@ -1667,7 +1667,6 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
     {
         if( write_pcr_empty( w, program, 1 ) < 0 )
             return -1;
-        retransmit_psi_and_si( w, program, 1 );
         w->first_input = 1;
     }
 
@@ -1717,6 +1716,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         /* Check all the non-video packets first */
         if( !need_pcr )
         {
+            retransmit_psi_and_si( w, program );
+
             for( int i = 0; i < w->num_buffered_frames; i++ )
             {
                 stream = queued_pes[i]->stream;
@@ -1872,8 +1873,6 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 free( pes->data );
                 free( pes );
             }
-
-            retransmit_psi_and_si( w, program, 0 );
         }
         else /* no packets can be written */
         {
