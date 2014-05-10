@@ -201,6 +201,9 @@ typedef struct
     int aac_profile;
     int aac_channel_map;
 
+    /* Opus */
+    int opus_channel_map;
+
     /* ATSC */
 
     /* DVB */

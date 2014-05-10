@@ -29,7 +29,7 @@
 #include "crc/crc.h"
 #include <math.h>
 
-static const int steam_type_table[27][2] =
+static const int steam_type_table[28][2] =
 {
     { LIBMPEGTS_VIDEO_MPEG2, VIDEO_MPEG2 },
     { LIBMPEGTS_VIDEO_AVC,   VIDEO_AVC },
@@ -57,6 +57,7 @@ static const int steam_type_table[27][2] =
     { LIBMPEGTS_DVB_VBI,         PRIVATE_DATA },
     { LIBMPEGTS_ANCILLARY_RDD11, PRIVATE_DATA },
     { LIBMPEGTS_ANCILLARY_2038,  PRIVATE_DATA },
+    { LIBMPEGTS_AUDIO_OPUS,  PRIVATE_DATA },
     { 0 },
 };
 
@@ -184,6 +185,15 @@ static void write_iso_lang_descriptor( bs_t *s, ts_int_stream_t *stream )
         bs_write( s, 8, stream->lang_code[i] );
 
     bs_write(s, 8, stream->audio_type ); // audio_type
+}
+
+/** Misc descriptors **/
+static void write_opus_descriptor( bs_t *s, ts_int_stream_t *stream )
+{
+    bs_write( s, 8, DVB_EXTENSION_DESCRIPTOR_TAG ); // descriptor_tag
+    bs_write( s, 8, 0x2 ); // descriptor_length
+    bs_write( s, 8, 0x80 ); // descriptor_tag_extension (User defined)
+    bs_write( s, 8, stream->opus_channel_map ); // channel_config_code
 }
 
 /**** PCR functions ****/
@@ -567,6 +577,11 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
          {
              write_registration_descriptor( &q, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "VANC" );
              write_anc_data_descriptor( &q );
+         }
+         else if( stream->stream_format == LIBMPEGTS_AUDIO_OPUS )
+         {
+             write_registration_descriptor( &q, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "Opus" );
+             write_opus_descriptor( &q, stream );
          }
 
          // TODO other stream_type descriptors
@@ -1327,6 +1342,21 @@ int ts_setup_302m_stream( ts_writer_t *w, int pid, int bit_depth, int num_channe
 
     /* 302M frame size is bit_depth / 4 + 1 */
     stream->rx = 1.2 * ((bit_depth >> 2) + 1) * SMPTE_302M_AUDIO_SR * 8;
+
+    return 0;
+}
+
+int ts_setup_opus_stream( ts_writer_t *w, int pid, int channel_map )
+{
+    ts_int_stream_t *stream = find_stream( w, pid );
+
+    if( !stream )
+    {
+        fprintf( stderr, "Invalid PID\n" );
+        return -1;
+    }
+
+    stream->opus_channel_map = channel_map;
 
     return 0;
 }

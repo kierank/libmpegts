@@ -69,7 +69,7 @@
 #define LIBMPEGTS_DVB_VBI      130
 
 /* Misc */
-
+#define LIBMPEGTS_AUDIO_OPUS   160
 
 /**** Stream IDs ****/
 /* SMPTE 302M, AC3, DVB subtitles and Teletext use Private Stream 1 */
@@ -411,6 +411,15 @@ int ts_setup_mpeg4_aac_stream( ts_writer_t *w, int pid, int profile_and_level, i
  *        It is the responsibility of the calling application to encapsulate the SMPTE 302M data. */
 
 int ts_setup_302m_stream( ts_writer_t *w, int pid, int bit_depth, int num_channels );
+
+/* Opus */
+
+#define LIBMPEGTS_CHANNEL_CONFIG_DUAL_MONO 0x00
+#define LIBMPEGTS_CHANNEL_CONFIG_MONO      0x01
+#define LIBMPEGTS_CHANNEL_CONFIG_STEREO    0x02
+
+int ts_setup_opus_stream( ts_writer_t *w, int pid, int channel_map );
+
 
 /**** DVB Specific Information ****/
 
