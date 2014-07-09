@@ -1037,7 +1037,8 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         cur_stream->tb.buf_size = TB_SIZE;
 
         /* setup T-STD buffers when audio buffers sizes are independent of number of channels */
-        if( cur_stream->stream_format == LIBMPEGTS_AUDIO_MPEG1 || cur_stream->stream_format == LIBMPEGTS_AUDIO_MPEG2 )
+        if( cur_stream->stream_format == LIBMPEGTS_AUDIO_MPEG1 || cur_stream->stream_format == LIBMPEGTS_AUDIO_MPEG2 ||
+            cur_stream->stream_format == LIBMPEGTS_AUDIO_OPUS )
         {
             /* use the defaults */
             cur_stream->rx = MISC_AUDIO_RXN;
