@@ -985,6 +985,7 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         if( !cur_stream->stream_type )
         {
             fprintf( stderr, "Unsupported Stream Format\n" );
+            free( cur_stream );
             return -1;
         }
 
