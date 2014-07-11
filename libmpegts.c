@@ -1532,7 +1532,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
     if( num_frames )
     {
-        ts_int_pes_t **tmp = realloc( w->buffered_frames, (w->num_buffered_frames+num_frames) * sizeof(w->buffered_frames) );
+        ts_int_pes_t **tmp = realloc( w->buffered_frames, (w->num_buffered_frames+num_frames) * sizeof(w->buffered_frames[0]) );
         if( !tmp )
         {
            fprintf( stderr, "Malloc failed\n" );
