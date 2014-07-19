@@ -329,6 +329,15 @@ typedef struct ts_main_t
 
 int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params );
 
+/* update transport stream
+ *
+ * muxrate is the only tested parameter
+ *
+ * TODO: implement versioning so other parameters can be updated
+ *
+ */
+void ts_update_transport_stream( ts_writer_t *w, ts_main_t *params );
+
 /**** Additional Codec-Specific functions ****/
 /* Many formats require extra information. Setup the relevant information using the following functions */
 
