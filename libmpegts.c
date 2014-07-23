@@ -556,7 +556,7 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
              // TODO
          }
          else if( stream->stream_format == LIBMPEGTS_AUDIO_302M )
-             write_registration_descriptor( &q, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "BSSD" );
+             write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "BSSD" );
          else if( stream->stream_format == LIBMPEGTS_DVB_SUB )
              write_dvb_subtitling_descriptor( &q, stream );
          else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
@@ -568,15 +568,15 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
                  write_teletext_descriptor( &q, stream, 1 );
          }
          else if( stream->stream_format == LIBMPEGTS_ANCILLARY_RDD11 )
-             write_registration_descriptor( &q, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "LU-A" );
+             write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "LU-A" );
          else if( stream->stream_format == LIBMPEGTS_ANCILLARY_2038 )
          {
-             write_registration_descriptor( &q, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "VANC" );
+             write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "VANC" );
              write_anc_data_descriptor( &q );
          }
          else if( stream->stream_format == LIBMPEGTS_AUDIO_OPUS )
          {
-             write_registration_descriptor( &q, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "Opus" );
+             write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "Opus" );
              write_opus_descriptor( &q, stream );
          }
 
