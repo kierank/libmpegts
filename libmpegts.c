@@ -1060,7 +1060,7 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
             cur_stream->mb.buf_size = w->ts_type == TS_TYPE_ATSC || w->ts_type == TS_TYPE_CABLELABS ? AC3_BS_ATSC : AC3_BS_DVB;
         }
         else if( cur_stream->stream_format == LIBMPEGTS_AUDIO_302M )
-            cur_stream->mb.buf_size = (1 << 16) - 512;
+            cur_stream->mb.buf_size = SMPTE_302M_AUDIO_BS;
 
         cur_program->streams[cur_program->num_streams] = cur_stream;
         cur_program->num_streams++;
@@ -1319,38 +1319,6 @@ int ts_setup_mpeg4_aac_stream( ts_writer_t *w, int pid, int profile_and_level, i
 
     return 0;
 };
-
-int ts_setup_302m_stream( ts_writer_t *w, int pid, int bit_depth, int num_channels )
-{
-    if( w->ts_type == TS_TYPE_BLU_RAY )
-    {
-        fprintf( stderr, "SMPTE 302M not allowed in Blu-Ray\n" );
-        return -1;
-    }
-    else if( !(bit_depth == 16 || bit_depth == 20 || bit_depth == 24) )
-    {
-        fprintf( stderr, "Invalid Bit Depth for SMPTE 302M\n" );
-        return -1;
-    }
-    else if( (num_channels & 1) || num_channels <= 0 || num_channels > 8 )
-    {
-        fprintf( stderr, "Invalid number of channels for SMPTE 302M\n" );
-        return -1;
-    }
-
-    ts_int_stream_t *stream = find_stream( w, pid );
-
-    if( !stream )
-    {
-        fprintf( stderr, "Invalid PID\n" );
-        return -1;
-    }
-
-    stream->mb.buf_size = SMPTE_302M_AUDIO_BS;
-    stream->rx = 1.2 * 6 * SMPTE_302M_AUDIO_SR * 8;
-
-    return 0;
-}
 
 int ts_setup_opus_stream( ts_writer_t *w, int pid, int channel_map )
 {
@@ -1649,6 +1617,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             new_pes[i]->write_pulldown_info = frames[i].write_pulldown_info;
             new_pes[i]->pic_struct = frames[i].pic_struct;
         }
+        else if( stream->stream_format == LIBMPEGTS_AUDIO_302M )
+            new_pes[i]->initial_arrival_time = (new_pes[i]->dts * 300) - frames[i].duration;
         else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
             new_pes[i]->initial_arrival_time = (new_pes[i]->dts - 3600) * 300; /* Teletext is special because data can only stay in the buffer for 40ms */
         else if( stream->stream_format == LIBMPEGTS_DVB_SUB )
