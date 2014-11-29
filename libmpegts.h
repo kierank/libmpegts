@@ -666,7 +666,7 @@ typedef struct
     int64_t cpb_final_arrival_time;
     int64_t dts;
     int64_t pts;
-    int64_t duration /* SMPTE 302M only */
+    int64_t duration; /* SMPTE 302M only */
     int random_access;
     int priority;
 
