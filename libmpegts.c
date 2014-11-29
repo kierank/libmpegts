@@ -1059,6 +1059,8 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
             cur_stream->rx = MISC_AUDIO_RXN;
             cur_stream->mb.buf_size = w->ts_type == TS_TYPE_ATSC || w->ts_type == TS_TYPE_CABLELABS ? AC3_BS_ATSC : AC3_BS_DVB;
         }
+        else if( cur_stream->stream_format == LIBMPEGTS_AUDIO_302M )
+            cur_stream->mb.buf_size = (1 << 16) - 512;
 
         cur_program->streams[cur_program->num_streams] = cur_stream;
         cur_program->num_streams++;
@@ -1344,20 +1346,8 @@ int ts_setup_302m_stream( ts_writer_t *w, int pid, int bit_depth, int num_channe
         return -1;
     }
 
-    if( stream->lpcm_ctx )
-        free( stream->lpcm_ctx );
-
-    stream->lpcm_ctx = calloc( 1, sizeof(lpcm_stream_ctx_t) );
-    if( !stream->lpcm_ctx )
-        return -1;
-
-    stream->lpcm_ctx->bits_per_sample = bit_depth;
-    stream->lpcm_ctx->num_channels = num_channels;
-
     stream->mb.buf_size = SMPTE_302M_AUDIO_BS;
-
-    /* 302M frame size is bit_depth / 4 + 1 */
-    stream->rx = 1.2 * ((bit_depth >> 2) + 1) * SMPTE_302M_AUDIO_SR * 8;
+    stream->rx = 1.2 * 6 * SMPTE_302M_AUDIO_SR * 8;
 
     return 0;
 }
