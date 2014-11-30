@@ -1060,7 +1060,12 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
             cur_stream->mb.buf_size = w->ts_type == TS_TYPE_ATSC || w->ts_type == TS_TYPE_CABLELABS ? AC3_BS_ATSC : AC3_BS_DVB;
         }
         else if( cur_stream->stream_format == LIBMPEGTS_AUDIO_302M )
+        {
+            /* Use some made up value because (surprise surprise) SMPTE hasn't defined it properly
+             * 7 bytes in 24-bit packing * 4 pairs * 48000 * 1.2 */
+            cur_stream->rx = 7 * 4 * 48000 * 6 / 5;
             cur_stream->mb.buf_size = SMPTE_302M_AUDIO_BS;
+        }
 
         cur_program->streams[cur_program->num_streams] = cur_stream;
         cur_program->num_streams++;
