@@ -1063,7 +1063,7 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         {
             /* Use some made up value because (surprise surprise) SMPTE hasn't defined it properly
              * 7 bytes in 24-bit packing * 4 pairs * 48000 * 1.2 */
-            cur_stream->rx = 7 * 4 * 48000 * 6 / 5;
+            cur_stream->rx = 7 * 4 * 48000 * 8 * 6 / 5;
             cur_stream->mb.buf_size = SMPTE_302M_AUDIO_BS;
         }
 
