@@ -31,7 +31,7 @@ int ts_setup_hdmv_lpcm_stream( ts_writer_t *w, int pid, int num_channels, int sa
         return -1;
     }
 
-    stream->lpcm_ctx = calloc( 1, sizeof(stream->lpcm_ctx) );
+    stream->lpcm_ctx = calloc( 1, sizeof(*stream->lpcm_ctx) );
     if( !stream->lpcm_ctx )
         return -1;
 
@@ -44,7 +44,7 @@ int ts_setup_hdmv_lpcm_stream( ts_writer_t *w, int pid, int num_channels, int sa
 
 int ts_setup_dtcp( ts_writer_t *w, uint8_t byte_1, uint8_t byte_2 )
 {
-    w->dtcp_ctx = calloc( 1, sizeof(w->dtcp_ctx) );
+    w->dtcp_ctx = calloc( 1, sizeof(*w->dtcp_ctx) );
     if( !w->dtcp_ctx )
         return -1;
 
