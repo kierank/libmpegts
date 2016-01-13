@@ -528,6 +528,8 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
              if( w->ts_type == TS_TYPE_BLU_RAY )
                  write_hdmv_video_registration_descriptor( &q, stream );
          }
+         else if( stream->stream_format == LIBMPEGTS_VIDEO_DIRAC )
+             write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "BBCD" );
          else if( stream->stream_format == LIBMPEGTS_AUDIO_MPEG1 ||
                   stream->stream_format == LIBMPEGTS_AUDIO_MPEG2 )
          {
@@ -772,9 +774,11 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
     bs_write1( &q, 0 );      // DSM_trick_mode_flag
     bs_write1( &q, 0 );      // additional_copy_info_flag
     bs_write1( &q, 0 );      // PES_CRC_flag
-    bs_write1( &q, 0 );      // PES_extension_flag
+    bs_write1( &q, stream->stream_format == LIBMPEGTS_VIDEO_DIRAC ); // PES_extension_flag
 
-    if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT || stream->stream_format == LIBMPEGTS_DVB_VBI )
+    if( stream->stream_format == LIBMPEGTS_VIDEO_DIRAC )
+        bs_write( &q, 8, 0x08 ); // PES_header_data_length
+    else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT || stream->stream_format == LIBMPEGTS_DVB_VBI )
         bs_write( &q, 8, 0x24 ); // PES_header_data_length
     else if( same_timestamps )
         bs_write( &q, 8, 0x05 ); // PES_header_data_length (PTS only)
@@ -789,6 +793,21 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
     {
         bs_write( &q, 4, 1 );                      // '0001'
         write_timestamp( &q, out_pes->dts % mod ); // DTS
+    }
+
+    if( stream->stream_format == LIBMPEGTS_VIDEO_DIRAC )
+    {
+        bs_write1( &q, 0 );      // PES_private_data_flag
+        bs_write1( &q, 0 );      // pack_header_field_flag
+        bs_write1( &q, 0 );      // program_packet_sequence_counter_flag
+        bs_write1( &q, 0 );      // P-STD_buffer_flag
+        bs_write( &q, 3, 0x0a ); // reserved
+        bs_write1( &q, 1 );      // PES_extension_flag_2
+
+        bs_write1( &q, 1 );      // marker_bit
+        bs_write( &q, 7, 1 );    // PES_header_data_length
+        bs_write1( &q, 0 );      // stream_id_extension_flag
+        bs_write( &q, 7, 0x60 ); // stream_id_extension
     }
 
     /* TTX and VBI require extra stuffing */
