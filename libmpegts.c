@@ -29,7 +29,7 @@
 #include "crc/crc.h"
 #include <math.h>
 
-static const int steam_type_table[28][2] =
+static const int steam_type_table[29][2] =
 {
     { LIBMPEGTS_VIDEO_MPEG2, VIDEO_MPEG2 },
     { LIBMPEGTS_VIDEO_AVC,   VIDEO_AVC },
