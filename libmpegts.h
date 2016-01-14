@@ -83,6 +83,9 @@
 /* MPEG Video (all types): 0xe0-0xef */
 #define LIBMPEGTS_STREAM_ID_MPEGVIDEO  0xe0
 
+/* Extended Stream-id */
+#define LIBMPEGTS_STREAM_ID_EXTENDED   0xfd
+
 /**** Blu-Ray Information ****/
 /* Blu-Ray Aspect Ratios */
 #define LIBMPEGTS_HDMV_AR_4_3          2
