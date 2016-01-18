@@ -823,7 +823,8 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
     bs_flush( &q );
     total_size = in_frame->size + (bs_pos( &q ) >> 3);
 
-    if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_AVC )
+    if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_AVC ||
+        stream->stream_format == LIBMPEGTS_VIDEO_DIRAC )
         bs_write( &s, 16, 0 );          // PES_packet_length
     else
         bs_write( &s, 16, total_size ); // PES_packet_length
