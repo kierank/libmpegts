@@ -1087,6 +1087,19 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
             cur_stream->rx = 7 * 4 * 48000 * 8 * 6 / 5;
             cur_stream->mb.buf_size = SMPTE_302M_AUDIO_BS;
         }
+        else if( cur_stream->stream_format == LIBMPEGTS_VIDEO_DIRAC )
+        {
+#define DIRAC_MAX_BITRATE 10000000
+            int bitrate = DIRAC_MAX_BITRATE * 1.2;
+            int bs_mux = 0.004 * bitrate;
+            int bs_oh = 1.0 * bitrate / 50.0;
+
+            cur_stream->mb.buf_size = bs_mux + bs_oh;
+            cur_stream->eb.buf_size = 10000000*8;
+
+            cur_stream->rx = bitrate;
+            cur_stream->rbx = bitrate;
+        }
 
         cur_program->streams[cur_program->num_streams] = cur_stream;
         cur_program->num_streams++;

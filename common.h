@@ -98,7 +98,7 @@
 #define MIN(a,b) ( (a)<(b) ? (a) : (b) )
 #define MAX(a,b) ( (a)>(b) ? (a) : (b) )
 
-#define IS_VIDEO(x) ( x->stream_format == LIBMPEGTS_VIDEO_MPEG2 || x->stream_format == LIBMPEGTS_VIDEO_AVC )
+#define IS_VIDEO(x) ( x->stream_format == LIBMPEGTS_VIDEO_MPEG2 || x->stream_format == LIBMPEGTS_VIDEO_AVC || x->stream_format == LIBMPEGTS_VIDEO_DIRAC )
 
 /* Internal Program & Stream Structures */
 typedef struct
