@@ -411,11 +411,6 @@ static int eject_queued_pmt( ts_writer_t *w, ts_int_program_t *program, bs_t *s 
         memmove( &program->pmt_packets[0], &program->pmt_packets[1], (program->num_queued_pmt-1) * sizeof(uint8_t*) );
 
     temp = realloc( program->pmt_packets, (program->num_queued_pmt-1) * sizeof(uint8_t*) );
-    if( !temp )
-    {
-        fprintf( stderr, "malloc failed\n" );
-        return -1;
-    }
     program->pmt_packets = temp;
 
     program->num_queued_pmt--;
