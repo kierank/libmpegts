@@ -75,7 +75,7 @@ void write_registration_descriptor( bs_t *s, int descriptor_tag, int descriptor_
 static void write_smoothing_buffer_descriptor( bs_t *s, ts_int_program_t *program )
 {
     bs_write( s, 8, SMOOTHING_BUFFER_DESCRIPTOR_TAG ); // descriptor_tag
-    bs_write( s, 8, 0x4 );                    // descriptor_length
+    bs_write( s, 8, 0x6 );                    // descriptor_length
 
     bs_write( s, 2, 0x3 );                    // reserved
     bs_write( s, 22, program->sb_leak_rate ); // sb_leak_rate
