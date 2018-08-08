@@ -127,11 +127,11 @@ static void write_service_descriptor( bs_t *s, int service_type, char *provider_
 
     bs_write( s, 8, provider_name_length ); // service_provider_name_length
     while( *provider_name != '\0' )
-        bs_write( s, 8, *provider_name++ );
+        bs_write( s, 8, (unsigned char)*provider_name++ );
 
     bs_write( s, 8, service_name_length ); // service_name_length
     while( *service_name != '\0' )
-       bs_write( s, 8, *service_name++ );
+       bs_write( s, 8, (unsigned char)*service_name++ );
 }
 
 /* DVB Service Information */
