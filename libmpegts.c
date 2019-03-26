@@ -1693,7 +1693,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         new_pes[i]->header_size = write_pes( w, program, &frames[i], new_pes[i] );
     }
 
-    if( !initial_queued_pes )
+    if( !w->lowlatency && !initial_queued_pes )
     {
         out = NULL;
         *len = 0;
@@ -1711,24 +1711,38 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         w->first_input = 1;
     }
 
-    /* loop through and find the time when the second video packet in the queue can arrive */
+
     int video_found = 0;
     int64_t pcr_stop = 0;
 
     cur_pcr = get_pcr_int( w, 0 );
 
-    for( int i = 0; i < w->num_buffered_frames; i++ )
+    if( w->lowlatency )
     {
-        stream = queued_pes[i]->stream;
-        if( IS_VIDEO( stream ) )
+        /* Find the latest arrival time in the batch of packets delivered */
+        for( int i = 0; i < w->num_buffered_frames; i++ )
         {
-            /* last frame is a special case - FIXME: is this acceptable in all use-cases? */
-            if( !num_frames )
-                pcr_stop = queued_pes[i]->dts;
-            else if( !video_found )
-                video_found = 1;
-            else
-                pcr_stop = queued_pes[i]->initial_arrival_time; /* earliest that a frame can arrive */
+            stream = queued_pes[i]->stream;
+            if( queued_pes[i]->final_arrival_time > pcr_stop )
+                pcr_stop = queued_pes[i]->final_arrival_time;
+        }
+    }
+    else
+    {
+        /* loop through and find the time when the second video packet in the queue can arrive */
+        for( int i = 0; i < w->num_buffered_frames; i++ )
+        {
+            stream = queued_pes[i]->stream;
+            if( IS_VIDEO( stream ) )
+            {
+                /* last frame is a special case - FIXME: is this acceptable in all use-cases? */
+                if( !num_frames )
+                    pcr_stop = queued_pes[i]->dts;
+                else if( !video_found )
+                    video_found = 1;
+                else
+                    pcr_stop = queued_pes[i]->initial_arrival_time; /* earliest that a frame can arrive */
+            }
         }
     }
 

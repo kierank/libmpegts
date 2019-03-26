@@ -295,6 +295,7 @@ struct ts_writer_t
 
     int cbr;
     int ts_muxrate;
+    int lowlatency;
 
     int pat_cc;
 
