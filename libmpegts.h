@@ -315,6 +315,7 @@ typedef struct ts_main_t
     int muxrate;
     int cbr;
     int ts_type;
+    int lowlatency;
 
     int network_pid;
 

@@ -886,6 +886,7 @@ static void update_ts_params( ts_writer_t *w, ts_main_t *params )
     w->ts_muxrate = params->muxrate;
     w->cbr = params->cbr;
     w->legacy_constraints = params->legacy_constraints;
+    w->lowlatency = params->lowlatency;
 
     w->pcr_period = params->pcr_period ? params->pcr_period : PCR_MAX_RETRANS_TIME;
     w->pat_period = params->pat_period ? params->pat_period : PAT_MAX_RETRANS_TIME;
