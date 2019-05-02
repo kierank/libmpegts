@@ -671,57 +671,6 @@ static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program )
     }
 }
 
-/* DVB / Blu-Ray Service Information */
-static int write_sit( ts_writer_t *w )
-{
-    int start;
-    int len = 0; // FIXME
-    bs_t *s = &w->out.bs;
-
-    write_packet_header( w, s, 1, SIT_PID, PAYLOAD_ONLY, &w->sit->cc );
-    bs_write( s, 8, 0 );       // pointer field
-
-    start = bs_pos( s );
-    bs_write( s, 8, SIT_TID ); // table_id
-    bs_write1( s, 1 );         // section_syntax_indicator
-    bs_write1( s, 1 );         // DVB_reserved_future_use
-    bs_write( s, 2, 0x03 );    // ISO_reserved
-
-    // FIXME do length properly
-
-    bs_write( s, 12, 11 + len ); // section_length
-    bs_write( s, 16, 0xffff ); // DVB_reserved_future_use
-    bs_write( s, 2, 0x03 );    // ISO_reserved
-    bs_write( s, 5, w->sit->version_number ); // version_number
-    bs_write1( s, 1 );         // current_next_indicator
-    bs_write( s, 8, 0 );       // section_number
-    bs_write( s, 8, 0 );       // last_section_number
-    bs_write( s, 4, 0x0f );    // DVB_reserved_for_future_use
-
-    bs_write( s, 12, len );    // transmission_info_loop_length
-
-    if( w->ts_type == TS_TYPE_BLU_RAY )
-        write_partial_ts_descriptor( w, s );
-
-    for( int i = 0; i < w->num_programs; i++ )
-    {
-        bs_write( s, 16, w->programs[i]->program_num & 0xffff ); // service_id (equivalent to program_number)
-        bs_write1( s, 1 );      // DVB_reserved_future_use
-        bs_write( s, 3, 0x07 ); // running_status
-        bs_write( s, 12, 0 );   // service_loop_length
-    }
-
-    bs_flush( s );
-    write_crc( s, start );
-
-    // -40 to include header and pointer field
-    write_padding( s, start - 40 );
-    if( increase_pcr( w, 1, 0 ) < 0 )
-        return -1;
-
-    return 0;
-}
-
 static void write_timestamp( bs_t *s, uint64_t timestamp )
 {
     bs_write( s, 3, (timestamp >> 30) & 0x07 ); // timestamp [32..30]
