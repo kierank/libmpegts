@@ -1552,7 +1552,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
     ts_int_pes_t **queued_pes;
     ts_int_pes_t **new_pes;
 
-    int stuffing, flags, pkt_bytes_left, write_pcr, write_adapt_field, adapt_field_len, pes_start, running;
+    int stuffing, flags, pkt_bytes_left, write_pcr, write_adapt_field, adapt_field_len, pes_start;
     uint8_t temp[200];
     bs_t q;
     bs_t *s = &w->out.bs;
@@ -1702,7 +1702,6 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
     }
 
     write_pcr = 0;
-    running = 1;
 
     if( !w->first_input )
     {
