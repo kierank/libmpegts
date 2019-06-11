@@ -1040,7 +1040,6 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
             int bs_oh = 1.0 * bitrate / 50.0;
 
             cur_stream->mb.buf_size = bs_mux + bs_oh;
-            cur_stream->eb.buf_size = 10000000*8;
 
             cur_stream->rx = bitrate;
             cur_stream->rbx = bitrate;
@@ -1185,7 +1184,6 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
         bs_oh = 1.0 * mpeg2_levels[level_idx].bitrate/750.0;
 
         stream->rx = 1.2 * mpeg2_levels[level_idx].bitrate;
-        stream->eb.buf_size = vbv_bufsize;
 
         if( level == LIBMPEGTS_MPEG2_LEVEL_LOW || level == LIBMPEGTS_MPEG2_LEVEL_MAIN )
         {
@@ -1206,7 +1204,6 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
         bs_oh = 1.0 * MAX( bitrate, 2000000 )/750.0;
 
         stream->mb.buf_size = bs_mux + bs_oh;
-        stream->eb.buf_size = avc_levels[level_idx].cpb * factor;
 
         stream->rx = bitrate;
         stream->rbx = bitrate;

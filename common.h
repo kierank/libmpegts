@@ -189,7 +189,6 @@ typedef struct
     buffer_t tb; /* transport buffer */
     int rx;      /* flow from transport to multiplex buffer (video) or main buffer (audio) */
     buffer_t mb; /* multiplex buffer (video) or main buffer (audio) */
-    buffer_t eb; /* elementary buffer */
     int rbx;     /* flow from multiplex to elementary buffer (video) */
 
     /* Language Codes */
