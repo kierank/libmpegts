@@ -1042,7 +1042,6 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
             cur_stream->mb.buf_size = bs_mux + bs_oh;
 
             cur_stream->rx = bitrate;
-            cur_stream->rbx = bitrate;
         }
 
         cur_program->streams[cur_program->num_streams] = cur_stream;
@@ -1188,12 +1187,10 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
         if( level == LIBMPEGTS_MPEG2_LEVEL_LOW || level == LIBMPEGTS_MPEG2_LEVEL_MAIN )
         {
             stream->mb.buf_size = bs_mux + bs_oh + mpeg2_levels[level_idx].vbv - vbv_bufsize;
-            stream->rbx = mpeg2_levels[level_idx].bitrate;
         }
         else
         {
             stream->mb.buf_size = bs_mux + bs_oh;
-            stream->rbx = MIN( 1.05 * vbv_maxrate, mpeg2_levels[level_idx].bitrate );
         }
     }
     else if( stream->stream_format == LIBMPEGTS_VIDEO_AVC )
@@ -1206,7 +1203,6 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
         stream->mb.buf_size = bs_mux + bs_oh;
 
         stream->rx = bitrate;
-        stream->rbx = bitrate;
     }
 
     return 0;
