@@ -188,7 +188,6 @@ typedef struct
     /* T_STD */
     buffer_t tb; /* transport buffer */
     int rx;      /* flow from transport to multiplex buffer (video) or main buffer (audio) */
-    buffer_t mb; /* multiplex buffer (video) or main buffer (audio) */
 
     /* Language Codes */
     int write_lang_code;

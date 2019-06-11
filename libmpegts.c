@@ -1018,28 +1018,21 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         {
             /* use the defaults */
             cur_stream->rx = MISC_AUDIO_RXN;
-            cur_stream->mb.buf_size = MISC_AUDIO_BS;
         }
         else if( cur_stream->stream_format == LIBMPEGTS_AUDIO_AC3 || cur_stream->stream_format == LIBMPEGTS_AUDIO_EAC3 )
         {
             cur_stream->rx = MISC_AUDIO_RXN;
-            cur_stream->mb.buf_size = w->ts_type == TS_TYPE_ATSC || w->ts_type == TS_TYPE_CABLELABS ? AC3_BS_ATSC : AC3_BS_DVB;
         }
         else if( cur_stream->stream_format == LIBMPEGTS_AUDIO_302M )
         {
             /* Use some made up value because (surprise surprise) SMPTE hasn't defined it properly
              * 7 bytes in 24-bit packing * 4 pairs * 48000 * 1.2 */
             cur_stream->rx = 7 * 4 * 48000 * 8 * 6 / 5;
-            cur_stream->mb.buf_size = SMPTE_302M_AUDIO_BS;
         }
         else if( cur_stream->stream_format == LIBMPEGTS_VIDEO_DIRAC )
         {
 #define DIRAC_MAX_BITRATE 10000000
             int bitrate = DIRAC_MAX_BITRATE * 1.2;
-            int bs_mux = 0.004 * bitrate;
-            int bs_oh = 1.0 * bitrate / 50.0;
-
-            cur_stream->mb.buf_size = bs_mux + bs_oh;
 
             cur_stream->rx = bitrate;
         }
@@ -1100,7 +1093,6 @@ void ts_update_transport_stream( ts_writer_t *w, ts_main_t *params )
 
 int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, int vbv_maxrate, int vbv_bufsize, int frame_rate )
 {
-    int bs_mux, bs_oh;
     int level_idx = -1;
 
     ts_int_stream_t *stream = find_stream( w, pid );
@@ -1179,28 +1171,12 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
 
     if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 )
     {
-        bs_mux = 0.004 * mpeg2_levels[level_idx].bitrate;
-        bs_oh = 1.0 * mpeg2_levels[level_idx].bitrate/750.0;
-
         stream->rx = 1.2 * mpeg2_levels[level_idx].bitrate;
-
-        if( level == LIBMPEGTS_MPEG2_LEVEL_LOW || level == LIBMPEGTS_MPEG2_LEVEL_MAIN )
-        {
-            stream->mb.buf_size = bs_mux + bs_oh + mpeg2_levels[level_idx].vbv - vbv_bufsize;
-        }
-        else
-        {
-            stream->mb.buf_size = bs_mux + bs_oh;
-        }
     }
     else if( stream->stream_format == LIBMPEGTS_VIDEO_AVC )
     {
         int factor = (float)nal_factor[stream->mpegvideo_ctx->profile] * 1.2;
         int bitrate = avc_levels[level_idx].bitrate * factor;
-        bs_mux = 0.004 * MAX( bitrate, 2000000 );
-        bs_oh = 1.0 * MAX( bitrate, 2000000 )/750.0;
-
-        stream->mb.buf_size = bs_mux + bs_oh;
 
         stream->rx = bitrate;
     }
@@ -1248,7 +1224,6 @@ int ts_setup_mpeg2_aac_stream( ts_writer_t *w, int pid, int profile, int channel
         if( num_channels <= aac_buffers[i].max_channels )
         {
             stream->rx = aac_buffers[i].rxn;
-            stream->mb.buf_size = aac_buffers[i].bsn;
         }
     }
     return 0;
@@ -1290,7 +1265,6 @@ int ts_setup_mpeg4_aac_stream( ts_writer_t *w, int pid, int profile_and_level, i
         if( num_channels <= aac_buffers[i].max_channels )
         {
             stream->rx = aac_buffers[i].rxn;
-            stream->mb.buf_size = aac_buffers[i].bsn;
         }
     }
 
@@ -1349,12 +1323,10 @@ int ts_setup_dvb_subtitles( ts_writer_t *w, int pid, int has_dds, int num_subtit
     {
         stream->tb.buf_size = DVB_SUB_DDS_TB_SIZE;
         stream->rx = DVB_SUB_DDS_RXN;
-        stream->mb.buf_size = DVB_SUB_DDS_MB_SIZE;
     }
     else
     {
         stream->rx = DVB_SUB_RXN;
-        stream->mb.buf_size = DVB_SUB_MB_SIZE;
     }
 
     return 0;
@@ -1394,7 +1366,6 @@ int ts_setup_dvb_teletext( ts_writer_t *w, int pid, int num_teletexts, ts_dvb_tt
 
     stream->tb.buf_size = TELETEXT_T_BS;
     stream->rx = TELETEXT_RXN;
-    stream->mb.buf_size = TELETEXT_BTTX;
 
     return 0;
 }
@@ -1454,14 +1425,12 @@ int ts_setup_dvb_vbi( ts_writer_t *w, int pid, int num_vbis, ts_dvb_vbi_t *vbis 
     if( w->ts_type == TS_TYPE_CABLELABS || w->ts_type == TS_TYPE_ATSC )
     {
         stream->rx = SCTE_VBI_RXN;
-        stream->mb.buf_size = SCTE_VBI_MB_SIZE;
     }
     else
     {
         /* DVB-VBI uses teletext T-STD */
         stream->tb.buf_size = TELETEXT_T_BS;
         stream->rx = TELETEXT_RXN;
-        stream->mb.buf_size = TELETEXT_BTTX;
     }
 
     return 0;
