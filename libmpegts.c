@@ -1661,6 +1661,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             new_pes[i]->initial_arrival_time = 0; /* FIXME: is this right? */
         else if( stream->stream_format == LIBMPEGTS_DVB_VBI && ( w->ts_type == TS_TYPE_CABLELABS || w->ts_type == TS_TYPE_ATSC ) )
             new_pes[i]->initial_arrival_time = (new_pes[i]->dts - 3003) * 300; /* SCTE-127 VBI is always in terms of NTSC */
+        else if( stream->stream_format == LIBMPEGTS_ANCILLARY_2038)
+            new_pes[i]->initial_arrival_time = (new_pes[i]->dts - 3600) * 300;
         else if( stream->stream_format == LIBMPEGTS_DVB_VBI )
             new_pes[i]->initial_arrival_time = (new_pes[i]->dts - 3600) * 300;
         else
