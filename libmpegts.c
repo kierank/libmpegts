@@ -1097,6 +1097,10 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
             cur_stream->rx = bitrate;
             cur_stream->rbx = bitrate;
         }
+        else if( cur_stream->stream_format == LIBMPEGTS_ANCILLARY_2038 )
+        {
+            cur_stream->rx = 1.2 * 2500000;
+        }
 
         cur_program->streams[cur_program->num_streams] = cur_stream;
         cur_program->num_streams++;
