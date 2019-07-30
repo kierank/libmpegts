@@ -29,7 +29,7 @@
 #include "crc/crc.h"
 #include <math.h>
 
-static const int steam_type_table[29][2] =
+static const int stream_type_table[29][2] =
 {
     { LIBMPEGTS_VIDEO_MPEG2, VIDEO_MPEG2 },
     { LIBMPEGTS_VIDEO_AVC,   VIDEO_AVC },
@@ -1010,16 +1010,16 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
 
         cur_stream->pid = stream_in->pid;
         cur_stream->stream_format = stream_in->stream_format;
-        for( int j = 0; steam_type_table[j][0] != 0; j++ )
+        for( int j = 0; stream_type_table[j][0] != 0; j++ )
         {
-            if( cur_stream->stream_format == steam_type_table[j][0] )
+            if( cur_stream->stream_format == stream_type_table[j][0] )
             {
                 /* DVB AC-3 and EAC-3 are different */
                 if( w->ts_type == TS_TYPE_DVB &&
                     ( cur_stream->stream_format == LIBMPEGTS_AUDIO_AC3 || cur_stream->stream_format == LIBMPEGTS_AUDIO_EAC3 ) )
                     j++;
 
-                cur_stream->stream_type = steam_type_table[j][1];
+                cur_stream->stream_type = stream_type_table[j][1];
                 break;
             }
         }
