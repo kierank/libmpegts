@@ -44,6 +44,8 @@
 #define PRIVATE_SECTION   0x05
 #define PRIVATE_DATA      0x06
 
+#define DATA_SCTE35       0x86
+
 #define TS_HEADER_SIZE 4
 #define TS_PACKET_SIZE 188
 #define TS_CLOCK       27000000LL

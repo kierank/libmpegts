@@ -38,3 +38,10 @@ void write_scte_adaptation_descriptor( bs_t *s )
     bs_write( s, 8, SCTE_ADAPTATION_FIELD_DESCRIPTOR_TAG ); // descriptor_tag
     bs_write( s, 8, 0 ); // descriptor_length
 }
+
+void write_scte35_cue_identifier_descriptor( bs_t *s )
+{
+    bs_write( s, 8, SCTE35_CUE_IDENTIFIER_DESCRIPTOR_TAG ); // descriptor_tag
+    bs_write( s, 8, 1 ); // descriptor_length
+    bs_write( s, 8, 0 ); // cue_stream_type
+}

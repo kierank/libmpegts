@@ -71,6 +71,7 @@
 
 /* Misc */
 #define LIBMPEGTS_AUDIO_OPUS   160
+#define LIBMPEGTS_DATA_SCTE35  161
 
 /**** Stream IDs ****/
 /* SMPTE 302M, AC3, DVB subtitles and Teletext use Private Stream 1 */

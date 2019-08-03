@@ -29,7 +29,7 @@
 #include "crc/crc.h"
 #include <math.h>
 
-static const int stream_type_table[29][2] =
+static const int stream_type_table[30][2] =
 {
     { LIBMPEGTS_VIDEO_MPEG2, VIDEO_MPEG2 },
     { LIBMPEGTS_VIDEO_AVC,   VIDEO_AVC },
@@ -59,6 +59,7 @@ static const int stream_type_table[29][2] =
     { LIBMPEGTS_ANCILLARY_RDD11, PRIVATE_DATA },
     { LIBMPEGTS_ANCILLARY_2038,  PRIVATE_DATA },
     { LIBMPEGTS_AUDIO_OPUS,  PRIVATE_DATA },
+    { LIBMPEGTS_DATA_SCTE35, DATA_SCTE35 },
     { 0 },
 };
 
@@ -478,6 +479,14 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
     else if( w->ts_type == TS_TYPE_BLU_RAY )
         write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "HDMV" );
 
+    for( int i = 0; i < program->num_streams; i++ )
+    {
+        ts_int_stream_t *stream = program->streams[i];
+
+        if( stream->stream_format == LIBMPEGTS_DATA_SCTE35 )
+            write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "CUEI" );
+    }
+
     /* Optional descriptor(s) here */
 
     bs_flush( &q );
@@ -496,7 +505,7 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
          /* reset temporary bitstream context for streams loop */
          bs_init( &q, temp1, 512 );
 
-         if( stream->stream_format != LIBMPEGTS_ANCILLARY_RDD11 )
+         if( stream->stream_format != LIBMPEGTS_ANCILLARY_RDD11 && stream->stream_format != LIBMPEGTS_DATA_SCTE35 )
              write_data_stream_alignment_descriptor( &q );
 
          if( stream->dvb_au )
@@ -577,6 +586,8 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
              write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "Opus" );
              write_opus_descriptor( &q, stream );
          }
+         else if( stream->stream_format == LIBMPEGTS_DATA_SCTE35 )
+             write_scte35_cue_identifier_descriptor( &q );
 
          // TODO other stream_type descriptors
 
@@ -1653,7 +1664,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             new_pes[i]->write_pulldown_info = frames[i].write_pulldown_info;
             new_pes[i]->pic_struct = frames[i].pic_struct;
         }
-        else if( stream->stream_format == LIBMPEGTS_AUDIO_302M )
+        else if( stream->stream_format == LIBMPEGTS_AUDIO_302M || stream->stream_format == LIBMPEGTS_DATA_SCTE35 )
             new_pes[i]->initial_arrival_time = (new_pes[i]->dts * 300) - frames[i].duration;
         else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
             new_pes[i]->initial_arrival_time = (new_pes[i]->dts - 3600) * 300; /* Teletext is special because data can only stay in the buffer for 40ms */
@@ -1691,7 +1702,19 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
            return -1;
         }
 
-        new_pes[i]->header_size = write_pes( w, program, &frames[i], new_pes[i] );
+        /* Not technically a PES but put it through the same codepath */
+        if ( stream->stream_format == LIBMPEGTS_DATA_SCTE35 )
+        {
+            new_pes[i]->data[0] = 0; // pointer_field
+            memcpy( new_pes[i]->data+1, frames[i].data, frames[i].size );
+            new_pes[i]->size = new_pes[i]->bytes_left = frames[i].size + 1;
+            new_pes[i]->cur_pos = new_pes[i]->data;
+            new_pes[i]->header_size = 0;
+        }
+        else
+        {
+            new_pes[i]->header_size = write_pes( w, program, &frames[i], new_pes[i] );
+        }
     }
 
     if( !w->lowlatency && !initial_queued_pes )
@@ -1713,7 +1736,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
     }
 
 
-    int video_found = 0;
+    int video_found = 0, start = 0;
     int64_t pcr_stop = 0;
 
     cur_pcr = get_pcr_int( w, 0 );
@@ -1891,7 +1914,12 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
                 /* special case where the adaptation_field_length byte is the stuffing */
                 // FIXME except for cablelabs legacy
-                if( stuffing == 1 && !adapt_field_len )
+
+                if( stream->stream_format == LIBMPEGTS_DATA_SCTE35 )
+                {
+                    adapt_field_len = 0; /* Theoretically could be made PCR */
+                }
+                else if( stuffing == 1 && !adapt_field_len )
                 {
                     stuffing = flags = 0;
                     adapt_field_len = 1;
@@ -1902,11 +1930,15 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                     stuffing -= 2;  /* 2 bytes for adaptation field in this case. NOTE: needs fixing if more private data added */
                 }
 
+                start = bs_pos( s );
                 write_packet_header( w, s, pes_start, stream->pid, PAYLOAD_ONLY + ((!!adapt_field_len)<<1), &stream->cc );
                 if( adapt_field_len )
                     write_adaptation_field( w, s, program, pes, write_pcr, flags, stuffing, 0 );
 
-                write_bytes(s, pes->cur_pos, pes->bytes_left );
+                write_bytes( s, pes->cur_pos, pes->bytes_left );
+                if( stream->stream_format == LIBMPEGTS_DATA_SCTE35 )
+                    write_padding( s, start );
+
                 pes->bytes_left = 0;
                 add_to_buffer( &stream->tb );
                 if( increase_pcr( w, 1, 0 ) < 0 )
@@ -2086,7 +2118,11 @@ int increase_pcr( ts_writer_t *w, int num_packets, int imaginary )
     drip_buffer( w, program, w->rx_sys, &w->tb, next_pcr );
     for( int i = 0; i < program->num_streams; i++ )
     {
-        drip_buffer( w, program, program->streams[i]->rx, &program->streams[i]->tb, next_pcr );
+        /* SCTE35 is PSI so not part of T-STD */
+        if( program->streams[i]->stream_format == LIBMPEGTS_DATA_SCTE35 )
+            program->streams[i]->tb.cur_buf = 0;
+        else
+            drip_buffer( w, program, program->streams[i]->rx, &program->streams[i]->tb, next_pcr );
     }
 
     w->packets_written += num_packets;

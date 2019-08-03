@@ -24,8 +24,10 @@
 /* Descriptors */
 #define SCTE_ADAPTATION_FIELD_DESCRIPTOR_TAG 0x97
 #define CABLELABS_3D_MPEG2_DESCRIPTOR_TAG    0xe8
+#define SCTE35_CUE_IDENTIFIER_DESCRIPTOR_TAG 0x8a
 
 void write_cablelabs_3d_descriptor( bs_t *s );
 void write_scte_adaptation_descriptor( bs_t *s );
+void write_scte35_cue_identifier_descriptor( bs_t *s );
 
 #endif
