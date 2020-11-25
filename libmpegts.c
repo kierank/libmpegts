@@ -2129,8 +2129,7 @@ int increase_pcr( ts_writer_t *w, int num_packets, int imaginary )
 
     if( !imaginary )
     {
-        // FIXME this is wrong for multiple packets
-        if( w->num_pcrs > w->pcr_list_alloced )
+        if( w->num_pcrs >= w->pcr_list_alloced )
         {
             temp = realloc( w->pcr_list, w->pcr_list_alloced * 2 * sizeof(int64_t) );
             if( !temp )
