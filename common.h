@@ -72,7 +72,7 @@
 /* NIT */
 /* ETSI TS 101 162 - Temporary Private Use
  * Used for both "Original Network ID" and "Network ID" */
-#define DEFAULT_NID     0xff01
+#define DEFAULT_NID     0xffff
 
 /* Program and Program Element Descriptor Tags */
 #define VIDEO_STREAM_DESCRIPTOR_TAG          0x2
