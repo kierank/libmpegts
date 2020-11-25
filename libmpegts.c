@@ -911,6 +911,7 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         return -1;
     }
 
+    w->ts_type = params->ts_type;
     w->num_programs = 1;
     w->programs[0] = cur_program;
 
@@ -1052,7 +1053,6 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
     w->ts_id = params->ts_id;
     w->ts_muxrate = params->muxrate;
     w->cbr = params->cbr;
-    w->ts_type = params->ts_type;
     w->network_pid = params->network_pid;
     w->legacy_constraints = params->legacy_constraints;
 
