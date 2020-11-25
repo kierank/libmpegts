@@ -964,6 +964,7 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         return -1;
     }
 
+    w->ts_type = params->ts_type;
     w->num_programs = 1;
     w->programs[0] = cur_program;
 
@@ -1126,7 +1127,6 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
     update_ts_params( w, params );
 
     w->network_pid = params->network_pid;
-    w->ts_type = params->ts_type;
     w->network_id = params->network_id ? params->network_id : DEFAULT_NID;
     w->ts_id = params->ts_id;
     w->tb.buf_size = TB_SIZE;
