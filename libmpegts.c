@@ -630,14 +630,13 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
         bs_init( &z, program->pmt_packets[program->num_queued_pmt], 188 );
 
         write_packet_header( w, &z, 0, program->pmt.pid, PAYLOAD_ONLY, &program->pmt.cc );
-        write_bytes( &z, &temp[pos], MIN( bytes_left, length ) );
+        write_bytes( &z, &pmt_buf[pos], MIN( bytes_left, length ) );
         bs_flush( &z );
         write_padding( &z, 0 );
         pos += MIN( bytes_left, length );
         length -= MIN( bytes_left, length );
         program->num_queued_pmt++;
     }
-
     return 0;
 }
 
