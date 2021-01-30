@@ -1108,6 +1108,10 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
             cur_stream->rx = bitrate;
             cur_stream->rbx = bitrate;
         }
+        else if( cur_stream->stream_format == LIBMPEGTS_ANCILLARY_2038 )
+        {
+            cur_stream->rx = 1.2 * 2500000;
+        }
 
         cur_program->streams[cur_program->num_streams] = cur_stream;
         cur_program->num_streams++;
@@ -1663,7 +1667,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             new_pes[i]->write_pulldown_info = frames[i].write_pulldown_info;
             new_pes[i]->pic_struct = frames[i].pic_struct;
         }
-        else if( stream->stream_format == LIBMPEGTS_AUDIO_302M || stream->stream_format == LIBMPEGTS_DATA_SCTE35 )
+        else if( stream->stream_format == LIBMPEGTS_AUDIO_302M || stream->stream_format == LIBMPEGTS_DATA_SCTE35 || stream->stream_format == LIBMPEGTS_ANCILLARY_2038 )
             new_pes[i]->initial_arrival_time = (new_pes[i]->dts * 300) - frames[i].duration;
         else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
             new_pes[i]->initial_arrival_time = (new_pes[i]->dts - 3600) * 300; /* Teletext is special because data can only stay in the buffer for 40ms */
