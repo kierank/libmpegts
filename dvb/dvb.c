@@ -80,7 +80,7 @@ void write_teletext_descriptor( bs_t *s, ts_int_stream_t *stream, int vbi )
         for( int j = 0; j < 3; j++ )
             bs_write( s, 8, teletext->lang_code[j] );         // ISO_639_language_code
         bs_write( s, 5, teletext->teletext_type );            // teletext_type
-        bs_write( s, 3, teletext->teletext_magazine_number ); // teletext_magazine_number
+        bs_write( s, 3, teletext->teletext_magazine_number == 8 ? 0 : teletext->teletext_magazine_number ); // teletext_magazine_number
         bs_write( s, 8, teletext->teletext_page_number );     // teletext_page_number
     }
 }
