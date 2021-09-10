@@ -44,10 +44,13 @@
 #define PRIVATE_SECTION   0x05
 #define PRIVATE_DATA      0x06
 
+#define DATA_SCTE35       0x86
+
 #define TS_HEADER_SIZE 4
 #define TS_PACKET_SIZE 188
 #define TS_CLOCK       27000000LL
 #define TS_START       10
+#define TIMESTAMP_CLOCK 90000LL
 
 // arbitrary
 #define MAX_PROGRAMS   100
@@ -97,7 +100,7 @@
 #define MIN(a,b) ( (a)<(b) ? (a) : (b) )
 #define MAX(a,b) ( (a)>(b) ? (a) : (b) )
 
-#define IS_VIDEO(x) ( x->stream_format == LIBMPEGTS_VIDEO_MPEG2 || x->stream_format == LIBMPEGTS_VIDEO_AVC )
+#define IS_VIDEO(x) ( x->stream_format == LIBMPEGTS_VIDEO_MPEG2 || x->stream_format == LIBMPEGTS_VIDEO_AVC || x->stream_format == LIBMPEGTS_VIDEO_DIRAC )
 
 /* Internal Program & Stream Structures */
 typedef struct
@@ -201,6 +204,9 @@ typedef struct
     int aac_profile;
     int aac_channel_map;
 
+    /* Opus */
+    int opus_channel_map;
+
     /* ATSC */
 
     /* DVB */
@@ -284,12 +290,14 @@ struct ts_writer_t
 
     uint64_t bytes_written;
     uint64_t packets_written;
+    uint64_t pcr_start;
 
     int ts_type;
     int ts_id;
 
     int cbr;
     int ts_muxrate;
+    int lowlatency;
 
     int pat_cc;
 

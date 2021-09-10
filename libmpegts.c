@@ -29,10 +29,11 @@
 #include "crc/crc.h"
 #include <math.h>
 
-static const int steam_type_table[27][2] =
+static const int stream_type_table[30][2] =
 {
     { LIBMPEGTS_VIDEO_MPEG2, VIDEO_MPEG2 },
     { LIBMPEGTS_VIDEO_AVC,   VIDEO_AVC },
+    { LIBMPEGTS_VIDEO_DIRAC, 0xd1 },
     { LIBMPEGTS_AUDIO_MPEG1, AUDIO_MPEG1 },
     { LIBMPEGTS_AUDIO_MPEG2, AUDIO_MPEG2 },
     { LIBMPEGTS_AUDIO_ADTS,  AUDIO_ADTS },
@@ -57,6 +58,8 @@ static const int steam_type_table[27][2] =
     { LIBMPEGTS_DVB_VBI,         PRIVATE_DATA },
     { LIBMPEGTS_ANCILLARY_RDD11, PRIVATE_DATA },
     { LIBMPEGTS_ANCILLARY_2038,  PRIVATE_DATA },
+    { LIBMPEGTS_AUDIO_OPUS,  PRIVATE_DATA },
+    { LIBMPEGTS_DATA_SCTE35, DATA_SCTE35 },
     { 0 },
 };
 
@@ -186,30 +189,35 @@ static void write_iso_lang_descriptor( bs_t *s, ts_int_stream_t *stream )
     bs_write(s, 8, stream->audio_type ); // audio_type
 }
 
-/**** PCR functions ****/
-static int check_pcr( ts_writer_t *w, ts_int_program_t *program )
+/** Misc descriptors **/
+static void write_opus_descriptor( bs_t *s, ts_int_stream_t *stream )
 {
-    // if the next packet written goes over the max pcr retransmit boundary, write the pcr in the next packet
-    double next_pkt_pcr = ((w->packets_written * TS_PACKET_SIZE) + (TS_PACKET_SIZE + 7)) * 8.0 / w->ts_muxrate -
-                          (double)program->last_pcr / TS_CLOCK;
-    next_pkt_pcr += TS_START;
-
-    if( next_pkt_pcr >= (double)w->pcr_period / 1000 )
-    {
-        return 1;
-    }
-
-    return 0;
+    bs_write( s, 8, DVB_EXTENSION_DESCRIPTOR_TAG ); // descriptor_tag
+    bs_write( s, 8, 0x2 ); // descriptor_length
+    bs_write( s, 8, 0x80 ); // descriptor_tag_extension (User defined)
+    bs_write( s, 8, stream->opus_channel_map ); // channel_config_code
 }
 
+/**** PCR functions ****/
 static int64_t get_pcr_int( ts_writer_t *w, double offset )
 {
-    return (int64_t)((8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) * TS_CLOCK + 0.5) + TS_START * TS_CLOCK;
+    return (int64_t)((8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) * TS_CLOCK + 0.5) + w->pcr_start;
 }
 
 static double get_pcr_double( ts_writer_t *w, double offset )
 {
-    return (8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) + TS_START;
+    return (8.0 * (w->packets_written * TS_PACKET_SIZE + offset) / w->ts_muxrate) + (double)w->pcr_start / TS_CLOCK;
+}
+
+static int check_pcr( ts_writer_t *w, ts_int_program_t *program )
+{
+    // if the next packet written goes over the max pcr retransmit boundary, write the pcr in the next packet
+    int64_t next_pkt_pcr = get_pcr_int( w, (TS_PACKET_SIZE + 7) * 8 ) - program->last_pcr;
+
+    if( next_pkt_pcr >= w->pcr_period * (TS_CLOCK/1000) )
+        return 1;
+
+    return 0;
 }
 
 /**** Buffer management ****/
@@ -404,11 +412,6 @@ static int eject_queued_pmt( ts_writer_t *w, ts_int_program_t *program, bs_t *s 
         memmove( &program->pmt_packets[0], &program->pmt_packets[1], (program->num_queued_pmt-1) * sizeof(uint8_t*) );
 
     temp = realloc( program->pmt_packets, (program->num_queued_pmt-1) * sizeof(uint8_t*) );
-    if( !temp )
-    {
-        fprintf( stderr, "malloc failed\n" );
-        return -1;
-    }
     program->pmt_packets = temp;
 
     program->num_queued_pmt--;
@@ -476,6 +479,14 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
     else if( w->ts_type == TS_TYPE_BLU_RAY )
         write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "HDMV" );
 
+    for( int i = 0; i < program->num_streams; i++ )
+    {
+        ts_int_stream_t *stream = program->streams[i];
+
+        if( stream->stream_format == LIBMPEGTS_DATA_SCTE35 )
+            write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "CUEI" );
+    }
+
     /* Optional descriptor(s) here */
 
     bs_flush( &q );
@@ -494,7 +505,7 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
          /* reset temporary bitstream context for streams loop */
          bs_init( &q, temp1, 512 );
 
-         if( stream->stream_format != LIBMPEGTS_ANCILLARY_RDD11 )
+         if( stream->stream_format != LIBMPEGTS_ANCILLARY_RDD11 && stream->stream_format != LIBMPEGTS_DATA_SCTE35 )
              write_data_stream_alignment_descriptor( &q );
 
          if( stream->dvb_au )
@@ -522,6 +533,8 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
              if( w->ts_type == TS_TYPE_BLU_RAY )
                  write_hdmv_video_registration_descriptor( &q, stream );
          }
+         else if( stream->stream_format == LIBMPEGTS_VIDEO_DIRAC )
+             write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "BBCD" );
          else if( stream->stream_format == LIBMPEGTS_AUDIO_MPEG1 ||
                   stream->stream_format == LIBMPEGTS_AUDIO_MPEG2 )
          {
@@ -550,7 +563,7 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
              // TODO
          }
          else if( stream->stream_format == LIBMPEGTS_AUDIO_302M )
-             write_registration_descriptor( &q, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "BSSD" );
+             write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "BSSD" );
          else if( stream->stream_format == LIBMPEGTS_DVB_SUB )
              write_dvb_subtitling_descriptor( &q, stream );
          else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
@@ -562,12 +575,19 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
                  write_teletext_descriptor( &q, stream, 1 );
          }
          else if( stream->stream_format == LIBMPEGTS_ANCILLARY_RDD11 )
-             write_registration_descriptor( &q, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "LU-A" );
+             write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "LU-A" );
          else if( stream->stream_format == LIBMPEGTS_ANCILLARY_2038 )
          {
-             write_registration_descriptor( &q, PRIVATE_DATA_DESCRIPTOR_TAG, 4, "VANC" );
+             write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "VANC" );
              write_anc_data_descriptor( &q );
          }
+         else if( stream->stream_format == LIBMPEGTS_AUDIO_OPUS )
+         {
+             write_registration_descriptor( &q, REGISTRATION_DESCRIPTOR_TAG, 4, "Opus" );
+             write_opus_descriptor( &q, stream );
+         }
+         else if( stream->stream_format == LIBMPEGTS_DATA_SCTE35 )
+             write_scte35_cue_identifier_descriptor( &q );
 
          // TODO other stream_type descriptors
 
@@ -640,11 +660,11 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
     return 0;
 }
 
-static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, int first )
+static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program )
 {
     // TODO make this work with multiple programs
     int64_t cur_pcr = get_pcr_int( w, 0 );
-    if( cur_pcr - w->last_pat >= w->pat_period * 27000LL || first )
+    if( cur_pcr - w->last_pat >= w->pat_period * 27000LL || !w->last_pat )
     {
         /* Although it is not in line with the mux strategy it is good practice to write PAT and PMT together */
         w->last_pat = cur_pcr;
@@ -654,7 +674,7 @@ static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, in
 
     cur_pcr = get_pcr_int( w, 0 );
 
-    if( w->sdt && ( cur_pcr - w->last_sdt >= w->sdt_period * 27000LL || first ) )
+    if( w->sdt && ( cur_pcr - w->last_sdt >= w->sdt_period * 27000LL || !w->last_sdt ) )
     {
         w->last_sdt = cur_pcr;
         write_sdt( w );
@@ -760,9 +780,11 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
     bs_write1( &q, 0 );      // DSM_trick_mode_flag
     bs_write1( &q, 0 );      // additional_copy_info_flag
     bs_write1( &q, 0 );      // PES_CRC_flag
-    bs_write1( &q, 0 );      // PES_extension_flag
+    bs_write1( &q, stream->stream_format == LIBMPEGTS_VIDEO_DIRAC ); // PES_extension_flag
 
-    if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT || stream->stream_format == LIBMPEGTS_DVB_VBI )
+    if( stream->stream_format == LIBMPEGTS_VIDEO_DIRAC )
+        bs_write( &q, 8, 0x08 ); // PES_header_data_length
+    else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT || stream->stream_format == LIBMPEGTS_DVB_VBI )
         bs_write( &q, 8, 0x24 ); // PES_header_data_length
     else if( same_timestamps )
         bs_write( &q, 8, 0x05 ); // PES_header_data_length (PTS only)
@@ -779,6 +801,21 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
         write_timestamp( &q, out_pes->dts % mod ); // DTS
     }
 
+    if( stream->stream_format == LIBMPEGTS_VIDEO_DIRAC )
+    {
+        bs_write1( &q, 0 );      // PES_private_data_flag
+        bs_write1( &q, 0 );      // pack_header_field_flag
+        bs_write1( &q, 0 );      // program_packet_sequence_counter_flag
+        bs_write1( &q, 0 );      // P-STD_buffer_flag
+        bs_write( &q, 3, 0x0a ); // reserved
+        bs_write1( &q, 1 );      // PES_extension_flag_2
+
+        bs_write1( &q, 1 );      // marker_bit
+        bs_write( &q, 7, 1 );    // PES_header_data_length
+        bs_write1( &q, 0 );      // stream_id_extension_flag
+        bs_write( &q, 7, 0x60 ); // stream_id_extension
+    }
+
     /* TTX and VBI require extra stuffing */
     if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT || stream->stream_format == LIBMPEGTS_DVB_VBI )
     {
@@ -791,7 +828,8 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
     bs_flush( &q );
     total_size = in_frame->size + (bs_pos( &q ) >> 3);
 
-    if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_AVC )
+    if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_AVC ||
+        stream->stream_format == LIBMPEGTS_VIDEO_DIRAC )
         bs_write( &s, 16, 0 );          // PES_packet_length
     else
         bs_write( &s, 16, total_size ); // PES_packet_length
@@ -850,6 +888,21 @@ static int check_bitstream( ts_writer_t *w )
     }
 
     return 0;
+}
+
+/* set updatable ts parameters */
+static void update_ts_params( ts_writer_t *w, ts_main_t *params )
+{
+    w->ts_muxrate = params->muxrate;
+    w->cbr = params->cbr;
+    w->legacy_constraints = params->legacy_constraints;
+    w->lowlatency = params->lowlatency;
+
+    w->pcr_period = params->pcr_period ? params->pcr_period : PCR_MAX_RETRANS_TIME;
+    w->pat_period = params->pat_period ? params->pat_period : PAT_MAX_RETRANS_TIME;
+    w->sdt_period = params->sdt_period ? params->sdt_period : SDT_MAX_RETRANS_TIME;
+
+    w->r_sys = MAX( R_SYS_DEFAULT, (double)w->ts_muxrate / 500 );
 }
 
 ts_writer_t *ts_create_writer( void )
@@ -968,16 +1021,16 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
 
         cur_stream->pid = stream_in->pid;
         cur_stream->stream_format = stream_in->stream_format;
-        for( int j = 0; steam_type_table[j][0] != 0; j++ )
+        for( int j = 0; stream_type_table[j][0] != 0; j++ )
         {
-            if( cur_stream->stream_format == steam_type_table[j][0] )
+            if( cur_stream->stream_format == stream_type_table[j][0] )
             {
                 /* DVB AC-3 and EAC-3 are different */
                 if( w->ts_type == TS_TYPE_DVB &&
                     ( cur_stream->stream_format == LIBMPEGTS_AUDIO_AC3 || cur_stream->stream_format == LIBMPEGTS_AUDIO_EAC3 ) )
                     j++;
 
-                cur_stream->stream_type = steam_type_table[j][1];
+                cur_stream->stream_type = stream_type_table[j][1];
                 break;
             }
         }
@@ -1023,7 +1076,8 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         cur_stream->tb.buf_size = TB_SIZE;
 
         /* setup T-STD buffers when audio buffers sizes are independent of number of channels */
-        if( cur_stream->stream_format == LIBMPEGTS_AUDIO_MPEG1 || cur_stream->stream_format == LIBMPEGTS_AUDIO_MPEG2 )
+        if( cur_stream->stream_format == LIBMPEGTS_AUDIO_MPEG1 || cur_stream->stream_format == LIBMPEGTS_AUDIO_MPEG2 ||
+            cur_stream->stream_format == LIBMPEGTS_AUDIO_OPUS )
         {
             /* use the defaults */
             cur_stream->rx = MISC_AUDIO_RXN;
@@ -1033,6 +1087,30 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         {
             cur_stream->rx = MISC_AUDIO_RXN;
             cur_stream->mb.buf_size = w->ts_type == TS_TYPE_ATSC || w->ts_type == TS_TYPE_CABLELABS ? AC3_BS_ATSC : AC3_BS_DVB;
+        }
+        else if( cur_stream->stream_format == LIBMPEGTS_AUDIO_302M )
+        {
+            /* Use some made up value because (surprise surprise) SMPTE hasn't defined it properly
+             * 7 bytes in 24-bit packing * 4 pairs * 48000 * 1.2 */
+            cur_stream->rx = 7 * 4 * 48000 * 8 * 6 / 5;
+            cur_stream->mb.buf_size = SMPTE_302M_AUDIO_BS;
+        }
+        else if( cur_stream->stream_format == LIBMPEGTS_VIDEO_DIRAC )
+        {
+#define DIRAC_MAX_BITRATE 10000000
+            int bitrate = DIRAC_MAX_BITRATE * 1.2;
+            int bs_mux = 0.004 * bitrate;
+            int bs_oh = 1.0 * bitrate / 50.0;
+
+            cur_stream->mb.buf_size = bs_mux + bs_oh;
+            cur_stream->eb.buf_size = 10000000*8;
+
+            cur_stream->rx = bitrate;
+            cur_stream->rbx = bitrate;
+        }
+        else if( cur_stream->stream_format == LIBMPEGTS_ANCILLARY_2038 )
+        {
+            cur_stream->rx = 1.2 * 2500000;
         }
 
         cur_program->streams[cur_program->num_streams] = cur_stream;
@@ -1049,21 +1127,15 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         cur_program->pcr_stream = pcr_stream;
     }
 
-    w->ts_id = params->ts_id;
-    w->ts_muxrate = params->muxrate;
-    w->cbr = params->cbr;
+    update_ts_params( w, params );
+
     w->network_pid = params->network_pid;
-    w->legacy_constraints = params->legacy_constraints;
-
-    w->pcr_period = params->pcr_period ? params->pcr_period : PCR_MAX_RETRANS_TIME;
-    w->pat_period = params->pat_period ? params->pat_period : PAT_MAX_RETRANS_TIME;
-    w->sdt_period = params->sdt_period ? params->sdt_period : SDT_MAX_RETRANS_TIME;
-
     w->network_id = params->network_id ? params->network_id : DEFAULT_NID;
-
+    w->ts_id = params->ts_id;
     w->tb.buf_size = TB_SIZE;
     w->rx_sys = RX_SYS;
-    w->r_sys = MAX( R_SYS_DEFAULT, (double)w->ts_muxrate / 500 );
+
+    w->pcr_start = TS_START * TS_CLOCK;
 
     // FIXME realloc if necessary
 
@@ -1079,6 +1151,17 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         return -1;
 
     return 0;
+}
+
+void ts_update_transport_stream( ts_writer_t *w, ts_main_t *params )
+{
+    int64_t cur_pcr = get_pcr_int( w, 0 );
+    if( params->muxrate != w->ts_muxrate )
+    {
+        update_ts_params( w, params );
+        w->packets_written = 0;
+        w->pcr_start = cur_pcr;
+    }
 }
 
 /* Codec-specific features */
@@ -1287,24 +1370,8 @@ int ts_setup_mpeg4_aac_stream( ts_writer_t *w, int pid, int profile_and_level, i
     return 0;
 };
 
-int ts_setup_302m_stream( ts_writer_t *w, int pid, int bit_depth, int num_channels )
+int ts_setup_opus_stream( ts_writer_t *w, int pid, int channel_map )
 {
-    if( w->ts_type == TS_TYPE_BLU_RAY )
-    {
-        fprintf( stderr, "SMPTE 302M not allowed in Blu-Ray\n" );
-        return -1;
-    }
-    else if( !(bit_depth == 16 || bit_depth == 20 || bit_depth == 24) )
-    {
-        fprintf( stderr, "Invalid Bit Depth for SMPTE 302M\n" );
-        return -1;
-    }
-    else if( (num_channels & 1) || num_channels <= 0 || num_channels > 8 )
-    {
-        fprintf( stderr, "Invalid number of channels for SMPTE 302M\n" );
-        return -1;
-    }
-
     ts_int_stream_t *stream = find_stream( w, pid );
 
     if( !stream )
@@ -1313,20 +1380,7 @@ int ts_setup_302m_stream( ts_writer_t *w, int pid, int bit_depth, int num_channe
         return -1;
     }
 
-    if( stream->lpcm_ctx )
-        free( stream->lpcm_ctx );
-
-    stream->lpcm_ctx = calloc( 1, sizeof(lpcm_stream_ctx_t) );
-    if( !stream->lpcm_ctx )
-        return -1;
-
-    stream->lpcm_ctx->bits_per_sample = bit_depth;
-    stream->lpcm_ctx->num_channels = num_channels;
-
-    stream->mb.buf_size = SMPTE_302M_AUDIO_BS;
-
-    /* 302M frame size is bit_depth / 4 + 1 */
-    stream->rx = 1.2 * ((bit_depth >> 2) + 1) * SMPTE_302M_AUDIO_SR * 8;
+    stream->opus_channel_map = channel_map;
 
     return 0;
 }
@@ -1601,18 +1655,20 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         new_pes[i]->stream = stream;
         new_pes[i]->random_access = !!frames[i].random_access;
         new_pes[i]->priority = !!frames[i].priority;
-        new_pes[i]->dts = frames[i].dts + TS_START * 90000LL;
-        new_pes[i]->pts = frames[i].pts + TS_START * 90000LL;
+        new_pes[i]->dts = frames[i].dts + TS_START * TIMESTAMP_CLOCK;
+        new_pes[i]->pts = frames[i].pts + TS_START * TIMESTAMP_CLOCK;
 
         if( IS_VIDEO( stream ) )
         {
             new_pes[i]->frame_type = frames[i].frame_type;
-            new_pes[i]->initial_arrival_time = frames[i].cpb_initial_arrival_time + TS_START * 27000000LL;
-            new_pes[i]->final_arrival_time = frames[i].cpb_final_arrival_time + TS_START * 27000000LL;
+            new_pes[i]->initial_arrival_time = frames[i].cpb_initial_arrival_time + TS_START * TS_CLOCK;
+            new_pes[i]->final_arrival_time = frames[i].cpb_final_arrival_time + TS_START * TS_CLOCK;
             new_pes[i]->ref_pic_idc = frames[i].ref_pic_idc;
             new_pes[i]->write_pulldown_info = frames[i].write_pulldown_info;
             new_pes[i]->pic_struct = frames[i].pic_struct;
         }
+        else if( stream->stream_format == LIBMPEGTS_AUDIO_302M || stream->stream_format == LIBMPEGTS_DATA_SCTE35 || stream->stream_format == LIBMPEGTS_ANCILLARY_2038 )
+            new_pes[i]->initial_arrival_time = (new_pes[i]->dts * 300) - frames[i].duration;
         else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
             new_pes[i]->initial_arrival_time = (new_pes[i]->dts - 3600) * 300; /* Teletext is special because data can only stay in the buffer for 40ms */
         else if( stream->stream_format == LIBMPEGTS_DVB_SUB )
@@ -1649,10 +1705,22 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
            return -1;
         }
 
-        new_pes[i]->header_size = write_pes( w, program, &frames[i], new_pes[i] );
+        /* Not technically a PES but put it through the same codepath */
+        if ( stream->stream_format == LIBMPEGTS_DATA_SCTE35 )
+        {
+            new_pes[i]->data[0] = 0; // pointer_field
+            memcpy( new_pes[i]->data+1, frames[i].data, frames[i].size );
+            new_pes[i]->size = new_pes[i]->bytes_left = frames[i].size + 1;
+            new_pes[i]->cur_pos = new_pes[i]->data;
+            new_pes[i]->header_size = 0;
+        }
+        else
+        {
+            new_pes[i]->header_size = write_pes( w, program, &frames[i], new_pes[i] );
+        }
     }
 
-    if( !initial_queued_pes )
+    if( !w->lowlatency && !initial_queued_pes )
     {
         out = NULL;
         *len = 0;
@@ -1667,28 +1735,41 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
     {
         if( write_pcr_empty( w, program, 1 ) < 0 )
             return -1;
-        retransmit_psi_and_si( w, program, 1 );
         w->first_input = 1;
     }
 
-    /* loop through and find the time when the second video packet in the queue can arrive */
-    int video_found = 0;
+
+    int video_found = 0, start = 0;
     int64_t pcr_stop = 0;
 
     cur_pcr = get_pcr_int( w, 0 );
 
-    for( int i = 0; i < w->num_buffered_frames; i++ )
+    if( w->lowlatency )
     {
-        stream = queued_pes[i]->stream;
-        if( IS_VIDEO( stream ) )
+        /* Find the latest arrival time in the batch of packets delivered */
+        for( int i = 0; i < w->num_buffered_frames; i++ )
         {
-            /* last frame is a special case - FIXME: is this acceptable in all use-cases? */
-            if( !num_frames )
-                pcr_stop = queued_pes[i]->dts;
-            else if( !video_found )
-                video_found = 1;
-            else
-                pcr_stop = queued_pes[i]->initial_arrival_time; /* earliest that a frame can arrive */
+            stream = queued_pes[i]->stream;
+            if( queued_pes[i]->final_arrival_time > pcr_stop )
+                pcr_stop = queued_pes[i]->final_arrival_time;
+        }
+    }
+    else
+    {
+        /* loop through and find the time when the second video packet in the queue can arrive */
+        for( int i = 0; i < w->num_buffered_frames; i++ )
+        {
+            stream = queued_pes[i]->stream;
+            if( IS_VIDEO( stream ) )
+            {
+                /* last frame is a special case - FIXME: is this acceptable in all use-cases? */
+                if( !num_frames )
+                    pcr_stop = queued_pes[i]->dts;
+                else if( !video_found )
+                    video_found = 1;
+                else
+                    pcr_stop = queued_pes[i]->initial_arrival_time; /* earliest that a frame can arrive */
+            }
         }
     }
 
@@ -1717,6 +1798,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         /* Check all the non-video packets first */
         if( !need_pcr )
         {
+            retransmit_psi_and_si( w, program );
+
             for( int i = 0; i < w->num_buffered_frames; i++ )
             {
                 stream = queued_pes[i]->stream;
@@ -1834,7 +1917,12 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
                 /* special case where the adaptation_field_length byte is the stuffing */
                 // FIXME except for cablelabs legacy
-                if( stuffing == 1 && !adapt_field_len )
+
+                if( stream->stream_format == LIBMPEGTS_DATA_SCTE35 )
+                {
+                    adapt_field_len = 0; /* Theoretically could be made PCR */
+                }
+                else if( stuffing == 1 && !adapt_field_len )
                 {
                     stuffing = flags = 0;
                     adapt_field_len = 1;
@@ -1845,11 +1933,15 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                     stuffing -= 2;  /* 2 bytes for adaptation field in this case. NOTE: needs fixing if more private data added */
                 }
 
+                start = bs_pos( s );
                 write_packet_header( w, s, pes_start, stream->pid, PAYLOAD_ONLY + ((!!adapt_field_len)<<1), &stream->cc );
                 if( adapt_field_len )
                     write_adaptation_field( w, s, program, pes, write_pcr, flags, stuffing, 0 );
 
-                write_bytes(s, pes->cur_pos, pes->bytes_left );
+                write_bytes( s, pes->cur_pos, pes->bytes_left );
+                if( stream->stream_format == LIBMPEGTS_DATA_SCTE35 )
+                    write_padding( s, start );
+
                 pes->bytes_left = 0;
                 add_to_buffer( &stream->tb );
                 if( increase_pcr( w, 1, 0 ) < 0 )
@@ -1872,8 +1964,6 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 free( pes->data );
                 free( pes );
             }
-
-            retransmit_psi_and_si( w, program, 0 );
         }
         else /* no packets can be written */
         {
@@ -2026,12 +2116,16 @@ int increase_pcr( ts_writer_t *w, int num_packets, int imaginary )
 
     // TODO do this for all programs
     ts_int_program_t *program = w->programs[0];
-    double next_pcr = TS_START + (w->packets_written + num_packets) * 8.0 * TS_PACKET_SIZE / w->ts_muxrate;
+    double next_pcr = get_pcr_double( w, num_packets * TS_PACKET_SIZE );
     /* buffer drip (TODO: all buffers?) */
     drip_buffer( w, program, w->rx_sys, &w->tb, next_pcr );
     for( int i = 0; i < program->num_streams; i++ )
     {
-        drip_buffer( w, program, program->streams[i]->rx, &program->streams[i]->tb, next_pcr );
+        /* SCTE35 is PSI so not part of T-STD */
+        if( program->streams[i]->stream_format == LIBMPEGTS_DATA_SCTE35 )
+            program->streams[i]->tb.cur_buf = 0;
+        else
+            drip_buffer( w, program, program->streams[i]->rx, &program->streams[i]->tb, next_pcr );
     }
 
     w->packets_written += num_packets;

@@ -38,6 +38,7 @@
 /* Generic */
 #define LIBMPEGTS_VIDEO_MPEG2 1
 #define LIBMPEGTS_VIDEO_AVC   2
+#define LIBMPEGTS_VIDEO_DIRAC 3
 
 #define LIBMPEGTS_AUDIO_MPEG1 32
 #define LIBMPEGTS_AUDIO_MPEG2 33
@@ -69,7 +70,8 @@
 #define LIBMPEGTS_DVB_VBI      130
 
 /* Misc */
-
+#define LIBMPEGTS_AUDIO_OPUS   160
+#define LIBMPEGTS_DATA_SCTE35  161
 
 /**** Stream IDs ****/
 /* SMPTE 302M, AC3, DVB subtitles and Teletext use Private Stream 1 */
@@ -81,6 +83,9 @@
 
 /* MPEG Video (all types): 0xe0-0xef */
 #define LIBMPEGTS_STREAM_ID_MPEGVIDEO  0xe0
+
+/* Extended Stream-id */
+#define LIBMPEGTS_STREAM_ID_EXTENDED   0xfd
 
 /**** Blu-Ray Information ****/
 /* Blu-Ray Aspect Ratios */
@@ -311,6 +316,7 @@ typedef struct ts_main_t
     int muxrate;
     int cbr;
     int ts_type;
+    int lowlatency;
 
     int network_pid;
 
@@ -328,6 +334,15 @@ typedef struct ts_main_t
 } ts_main_t;
 
 int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params );
+
+/* update transport stream
+ *
+ * muxrate is the only tested parameter
+ *
+ * TODO: implement versioning so other parameters can be updated
+ *
+ */
+void ts_update_transport_stream( ts_writer_t *w, ts_main_t *params );
 
 /**** Additional Codec-Specific functions ****/
 /* Many formats require extra information. Setup the relevant information using the following functions */
@@ -411,6 +426,15 @@ int ts_setup_mpeg4_aac_stream( ts_writer_t *w, int pid, int profile_and_level, i
  *        It is the responsibility of the calling application to encapsulate the SMPTE 302M data. */
 
 int ts_setup_302m_stream( ts_writer_t *w, int pid, int bit_depth, int num_channels );
+
+/* Opus */
+
+#define LIBMPEGTS_CHANNEL_CONFIG_DUAL_MONO 0x00
+#define LIBMPEGTS_CHANNEL_CONFIG_MONO      0x01
+#define LIBMPEGTS_CHANNEL_CONFIG_STEREO    0x02
+
+int ts_setup_opus_stream( ts_writer_t *w, int pid, int channel_map );
+
 
 /**** DVB Specific Information ****/
 
@@ -648,6 +672,7 @@ typedef struct
     int64_t cpb_final_arrival_time;
     int64_t dts;
     int64_t pts;
+    int64_t duration; /* SMPTE 302M only */
     int random_access;
     int priority;
 
