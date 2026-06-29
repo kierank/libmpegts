@@ -266,15 +266,11 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
         random_access = pes->random_access;
         if( IS_VIDEO( stream ) )
         {
-            if( !write_pcr )
-                random_access = 0;
-
             if( stream->dvb_au )
                 private_data_flag = write_dvb_au = 1;
         }
 
         priority = pes->priority;
-        pes->random_access = 0; /* don't write this flag again */
     }
 
     /* initialise temporary bitstream */
@@ -1861,6 +1857,9 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             if( program->pcr_stream == stream && pes_start )
                 write_adapt_field = 1;
 
+            if( pes_start && pes->random_access )
+                write_adapt_field = 1;
+
             if( check_pcr( w, program ) )
             {
                 if( program->pcr_stream == stream )
@@ -1905,6 +1904,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 write_bytes( s, pes->cur_pos, pkt_bytes_left );
                 pes->cur_pos += pkt_bytes_left;
                 pes->bytes_left -= pkt_bytes_left;
+                if( pes_start )
+                    pes->random_access = 0;
                 add_to_buffer( &stream->tb );
                 if( increase_pcr( w, 1, 0 ) < 0 )
                     return -1;
@@ -1937,6 +1938,8 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 write_packet_header( w, s, pes_start, stream->pid, PAYLOAD_ONLY + ((!!adapt_field_len)<<1), &stream->cc );
                 if( adapt_field_len )
                     write_adaptation_field( w, s, program, pes, write_pcr, flags, stuffing, 0 );
+                if( pes_start )
+                    pes->random_access = 0;
 
                 write_bytes( s, pes->cur_pos, pes->bytes_left );
                 if( stream->stream_format == LIBMPEGTS_DATA_SCTE35 )
