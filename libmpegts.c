@@ -220,6 +220,21 @@ static int check_pcr( ts_writer_t *w, ts_int_program_t *program )
     return 0;
 }
 
+/* Drip packets so the last one starts one packet time before final_arrival_time.
+ * +1 packet on the PCR stream because a PCR adaptation field can shorten any remaining packet. */
+static int pes_due( ts_int_program_t *program, ts_int_pes_t *pes, int64_t cur_pcr, int64_t pkt_time )
+{
+    int pcr_af = program->pcr_stream == pes->stream;
+    int64_t total = (pes->size + 183) / 184 + pcr_af;
+    int64_t left = (pes->bytes_left + 183) / 184 + pcr_af;
+    int64_t end = pes->final_arrival_time - pkt_time;
+
+    if( cur_pcr >= end )
+        return 1;
+
+    return left * (end - pes->initial_arrival_time) > total * (end - cur_pcr);
+}
+
 /**** Buffer management ****/
 static void add_to_buffer( buffer_t *buffer )
 {
@@ -1737,6 +1752,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
     int video_found = 0, start = 0;
     int64_t pcr_stop = 0;
+    int64_t pkt_time = (int64_t)TS_PACKET_SIZE * 8 * TS_CLOCK / w->ts_muxrate;
 
     cur_pcr = get_pcr_int( w, 0 );
 
@@ -1791,24 +1807,25 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         // FIXME at low bitrates this might need tweaking
         int need_pcr = check_pcr( w, program );
 
-        /* Check all the non-video packets first */
+        /* PSI/SI moves the PCR, so decide on the slot the packet will actually go in */
         if( !need_pcr )
         {
             retransmit_psi_and_si( w, program );
+            cur_pcr = get_pcr_int( w, 0 );
+            need_pcr = check_pcr( w, program );
+        }
 
+        /* Check all the non-video packets first */
+        if( !need_pcr )
+        {
             for( int i = 0; i < w->num_buffered_frames; i++ )
             {
                 stream = queued_pes[i]->stream;
                 if( (!pes || queued_pes[i]->dts < pes->dts) && !IS_VIDEO( stream ) )
                 {
-                    int total_packets = (queued_pes[i]->size + 183) / 184;
-                    int packets_left = (queued_pes[i]->bytes_left + 183) / 184;
-                    double drip_rate = (double)total_packets/ ( queued_pes[i]->final_arrival_time - queued_pes[i]->initial_arrival_time );
-                    double remaining_drip_rate = (double)packets_left / (queued_pes[i]->final_arrival_time - cur_pcr);
-
                     /* exclude video packets */
                     if( cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
-                        ( drip_rate < remaining_drip_rate || queued_pes[i]->final_arrival_time < cur_pcr ) )
+                        pes_due( program, queued_pes[i], cur_pcr, pkt_time ) )
                     {
                         pes = queued_pes[i];
                     }
@@ -1824,14 +1841,9 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 stream = queued_pes[i]->stream;
                 if( IS_VIDEO( stream ) )
                 {
-                    int total_packets = (queued_pes[i]->size + 183) / 184;
-                    int packets_left = (queued_pes[i]->bytes_left + 183) / 184;
-                    double drip_rate = (double)total_packets / ( queued_pes[i]->final_arrival_time - queued_pes[i]->initial_arrival_time );
-                    double remaining_drip_rate = (double)packets_left / (queued_pes[i]->final_arrival_time - cur_pcr );
-
                     /* Write a video packet anyway if we can put a PCR on it */
                     if( cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
-                        ( drip_rate < remaining_drip_rate || queued_pes[i]->final_arrival_time < cur_pcr || need_pcr ) )
+                        ( need_pcr || pes_due( program, queued_pes[i], cur_pcr, pkt_time ) ) )
                     {
                         pes = queued_pes[i];
                         break;
