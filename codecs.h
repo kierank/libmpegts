@@ -128,12 +128,15 @@ const aac_buffer_t aac_buffers[] =
 #define MISC_AUDIO_BS       3584*8
 #define MISC_AUDIO_RXN      2000000
 
-/* DVB Subtitles */
+/* DVB Subtitles (EN 300 743 5) */
 #define DVB_SUB_RXN         192000
 #define DVB_SUB_MB_SIZE     24000
-#define DVB_SUB_DDS_TB_SIZE TB_SIZE*2*8
+#define DVB_SUB_DDS_TB_SIZE (TB_SIZE*2) /* 1024 bytes */
 #define DVB_SUB_DDS_RXN     400000
 #define DVB_SUB_DDS_MB_SIZE 100000
+/* coded data buffer in bytes: 24 or 100 kbytes, kbyte taken as 1000 to stay conservative */
+#define DVB_SUB_B2_SIZE     24000
+#define DVB_SUB_DDS_B2_SIZE 100000
 
 /* Teletext */
 #define TELETEXT_T_BS       480*8 /* Seems to have an odd Transport Buffer size */

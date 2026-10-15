@@ -167,6 +167,13 @@ typedef struct
     buffer_queue_t queued_packets[10];
 } buffer_t;
 
+/* DVB subtitle PES payload held in the coded data buffer until its PTS */
+typedef struct
+{
+    int64_t pts;
+    int bytes;
+} ts_dvb_sub_b2_t;
+
 typedef struct
 {
     int pid;
@@ -186,6 +193,12 @@ typedef struct
 
     int                     num_dvb_sub;
     ts_dvb_sub_t            *dvb_sub_ctx;
+
+    /* EN 300 743 coded data buffer (bytes) */
+    int                     dvb_sub_b2_size;
+    int                     dvb_sub_b2_fullness;
+    int                     num_dvb_sub_b2;
+    ts_dvb_sub_b2_t         *dvb_sub_b2;
 
     int                     num_dvb_ttx;
     ts_dvb_ttx_t            *dvb_ttx_ctx;

@@ -238,6 +238,53 @@ static int pes_due( ts_int_program_t *program, ts_int_pes_t *pes, int64_t cur_pc
     return left * (end - pes->initial_arrival_time) > total * (end - cur_pcr);
 }
 
+/* EN 300 743 5: segments leave the coded data buffer when decoded and a display set
+ * is decoded by its PTS, so payload with a past PTS is no longer in the buffer */
+static void dvb_sub_b2_release( ts_int_stream_t *stream, int64_t cur_pcr )
+{
+    int n = 0;
+
+    while( n < stream->num_dvb_sub_b2 && stream->dvb_sub_b2[n].pts * 300 <= cur_pcr )
+        stream->dvb_sub_b2_fullness -= stream->dvb_sub_b2[n++].bytes;
+
+    if( n )
+    {
+        stream->num_dvb_sub_b2 -= n;
+        memmove( stream->dvb_sub_b2, &stream->dvb_sub_b2[n], stream->num_dvb_sub_b2 * sizeof(*stream->dvb_sub_b2) );
+    }
+}
+
+/* A PES larger than the buffer may start once the buffer is empty */
+static int dvb_sub_b2_fits( ts_int_pes_t *pes )
+{
+    ts_int_stream_t *stream = pes->stream;
+
+    if( pes->data != pes->cur_pos || !stream->dvb_sub_b2_fullness )
+        return 1;
+
+    return stream->dvb_sub_b2_fullness + pes->size - pes->header_size <= stream->dvb_sub_b2_size;
+}
+
+static int dvb_sub_b2_add( ts_int_pes_t *pes )
+{
+    ts_int_stream_t *stream = pes->stream;
+    ts_dvb_sub_b2_t *tmp = realloc( stream->dvb_sub_b2, (stream->num_dvb_sub_b2 + 1) * sizeof(*tmp) );
+
+    if( !tmp )
+    {
+        fprintf( stderr, "Malloc failed\n" );
+        return -1;
+    }
+
+    stream->dvb_sub_b2 = tmp;
+    stream->dvb_sub_b2[stream->num_dvb_sub_b2].pts = pes->pts;
+    stream->dvb_sub_b2[stream->num_dvb_sub_b2].bytes = pes->size - pes->header_size;
+    stream->dvb_sub_b2_fullness += pes->size - pes->header_size;
+    stream->num_dvb_sub_b2++;
+
+    return 0;
+}
+
 /**** Buffer management ****/
 static void add_to_buffer( buffer_t *buffer )
 {
@@ -1515,11 +1562,14 @@ int ts_setup_dvb_subtitles( ts_writer_t *w, int pid, int has_dds, int num_subtit
         stream->tb.buf_size = DVB_SUB_DDS_TB_SIZE;
         stream->rx = DVB_SUB_DDS_RXN;
         stream->mb.buf_size = DVB_SUB_DDS_MB_SIZE;
+        stream->dvb_sub_b2_size = DVB_SUB_DDS_B2_SIZE;
     }
     else
     {
+        stream->tb.buf_size = TB_SIZE;
         stream->rx = DVB_SUB_RXN;
         stream->mb.buf_size = DVB_SUB_MB_SIZE;
+        stream->dvb_sub_b2_size = DVB_SUB_B2_SIZE;
     }
 
     return 0;
@@ -1799,7 +1849,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT )
             new_pes[i]->initial_arrival_time = (new_pes[i]->dts - 3600) * 300; /* Teletext is special because data can only stay in the buffer for 40ms */
         else if( stream->stream_format == LIBMPEGTS_DVB_SUB )
-            new_pes[i]->initial_arrival_time = 0; /* FIXME: is this right? */
+            new_pes[i]->initial_arrival_time = 0; /* how early is limited by the coded data buffer */
         else if( stream->stream_format == LIBMPEGTS_DVB_VBI && ( w->ts_type == TS_TYPE_CABLELABS || w->ts_type == TS_TYPE_ATSC ) )
             new_pes[i]->initial_arrival_time = (new_pes[i]->dts - 3003) * 300; /* SCTE-127 VBI is always in terms of NTSC */
         else if( stream->stream_format == LIBMPEGTS_DVB_VBI )
@@ -1931,8 +1981,12 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 stream = queued_pes[i]->stream;
                 if( (!pes || queued_pes[i]->dts < pes->dts) && !IS_VIDEO( stream ) )
                 {
+                    if( stream->stream_format == LIBMPEGTS_DVB_SUB )
+                        dvb_sub_b2_release( stream, cur_pcr );
+
                     /* exclude video packets */
                     if( cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
+                        ( stream->stream_format != LIBMPEGTS_DVB_SUB || dvb_sub_b2_fits( queued_pes[i] ) ) &&
                         pes_due( program, queued_pes[i], cur_pcr, pkt_time ) )
                     {
                         pes = queued_pes[i];
@@ -1973,6 +2027,9 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 cur_pcr = get_pcr_int( w, 0 );
                 continue;
             }
+
+            if( stream->stream_format == LIBMPEGTS_DVB_SUB && pes_start && dvb_sub_b2_add( pes ) < 0 )
+                return -1;
 
             if( pcr_stop < cur_pcr )
                 fprintf( stderr, "\n pcr_stop is less than pcr pid: %i pcr_stop: %"PRIi64" pcr: %"PRIi64" \n", pes->stream->pid, pcr_stop, cur_pcr );
@@ -2149,6 +2206,7 @@ int ts_close_writer( ts_writer_t *w )
                 free( w->programs[i]->streams[j]->atsc_ac3_ctx );
             if( w->programs[i]->streams[j]->dvb_sub_ctx )
                 free( w->programs[i]->streams[j]->dvb_sub_ctx );
+            free( w->programs[i]->streams[j]->dvb_sub_b2 );
             if( w->programs[i]->streams[j]->dvb_ttx_ctx )
                 free( w->programs[i]->streams[j]->dvb_ttx_ctx );
             free_dvb_vbi( w->programs[i]->streams[j] );
