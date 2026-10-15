@@ -27,9 +27,10 @@ void parse_ac3_frame( ts_atsc_ac3_info *atsc_ac3_ctx, uint8_t *frame )
     atsc_ac3_ctx->sample_rate_code = frame[4] >> 6;
     atsc_ac3_ctx->bsid = frame[5] >> 3;
     atsc_ac3_ctx->bit_rate_code = (frame[4] & 0x3f) >> 1;
-    atsc_ac3_ctx->surround_mode = (frame[6] & 1) << 1 | (frame[7] >> 7);
     atsc_ac3_ctx->bsmod = frame[5] & 0x7;
     atsc_ac3_ctx->num_channels = frame[6] >> 5;
+    /* dsurmod directly follows acmod only in 2/0 mode, otherwise not indicated */
+    atsc_ac3_ctx->surround_mode = atsc_ac3_ctx->num_channels == 2 ? (frame[6] >> 3) & 0x3 : 0;
 }
 
 void write_atsc_ac3_descriptor( bs_t *s, ts_atsc_ac3_info *atsc_ac3_ctx )
@@ -50,7 +51,7 @@ void write_atsc_ac3_descriptor( bs_t *s, ts_atsc_ac3_info *atsc_ac3_ctx )
 void write_caption_service_descriptor( bs_t *s )
 {
     bs_write( s, 8, ATSC_CAPTION_SERVICE_DESCRIPTOR_TAG ); // descriptor_tag
-    bs_write( s, 8, 0 ); // descriptor_length
+    bs_write( s, 8, 1 ); // descriptor_length
     bs_write( s, 3, 0x7 ); // reserved
 
     bs_write( s, 5, 0 ); // number_of_services

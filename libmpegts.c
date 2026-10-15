@@ -111,10 +111,13 @@ static void write_avc_descriptor( bs_t *s, ts_int_program_t *program, ts_int_str
 
     bs_write( s, 8, avc_profiles[stream->mpegvideo_ctx->profile] ); // profile_idc
 
+    /* Baseline/Main level 1b is level_idc 11 with constraint_set3_flag */
+    int level_1b = stream->mpegvideo_ctx->level == 9 && stream->mpegvideo_ctx->profile <= AVC_MAIN;
+
     bs_write1( s, stream->mpegvideo_ctx->profile == AVC_BASELINE ); // constraint_set0_flag
     bs_write1( s, stream->mpegvideo_ctx->profile <= AVC_MAIN );     // constraint_set1_flag
     bs_write1( s, 0 );                                              // constraint_set2_flag
-        if( stream->mpegvideo_ctx->level == 9 && stream->mpegvideo_ctx->profile <= AVC_MAIN ) // level 1b
+        if( level_1b )
             bs_write1( s, 1 );                                           // constraint_set3_flag
         else if( stream->mpegvideo_ctx->profile == AVC_HIGH_10_INTRA   ||
                  stream->mpegvideo_ctx->profile == AVC_CAVLC_444_INTRA ||
@@ -126,7 +129,7 @@ static void write_avc_descriptor( bs_t *s, ts_int_program_t *program, ts_int_str
     bs_write1( s, 0 );                                               // constraint_set5_flag
 
     bs_write( s, 2, 0 );    // reserved
-    bs_write( s, 8, stream->mpegvideo_ctx->level & 0xff ); // level_idc
+    bs_write( s, 8, level_1b ? 11 : stream->mpegvideo_ctx->level & 0xff ); // level_idc
     bs_write( s, 1, 0 );    // AVC_still_present
     bs_write( s, 1, 0 );    // AVC_24_hour_picture_flag
     bs_write( s, 1, !program->is_3dtv ); // Frame_Packing_SEI_not_present_flag
@@ -212,7 +215,7 @@ static double get_pcr_double( ts_writer_t *w, double offset )
 static int check_pcr( ts_writer_t *w, ts_int_program_t *program )
 {
     // if the next packet written goes over the max pcr retransmit boundary, write the pcr in the next packet
-    int64_t next_pkt_pcr = get_pcr_int( w, (TS_PACKET_SIZE + 7) * 8 ) - program->last_pcr;
+    int64_t next_pkt_pcr = get_pcr_int( w, TS_PACKET_SIZE + PCR_BYTE_OFFSET ) - program->last_pcr;
 
     if( next_pkt_pcr >= w->pcr_period * (TS_CLOCK/1000) )
         return 1;
@@ -245,6 +248,13 @@ static void drip_buffer( ts_writer_t *w, ts_int_program_t *program, int rx, buff
 {
     int iters;
     double offset;
+
+    /* no T-STD rate defined for this stream */
+    if( rx <= 0 )
+    {
+        buffer->cur_buf = 0;
+        return;
+    }
 
     /* Although this uses floating point arithmetic, the values are backed by integers
      * Transport buffer fullness does not need to be exact */
@@ -293,7 +303,7 @@ static int write_adaptation_field( ts_writer_t *w, bs_t *s, ts_int_program_t *pr
 
     if( flags )
     {
-        int64_t pcr = get_pcr_int( w, 7 ); /* 7 bytes until end of PCR field */
+        int64_t pcr = get_pcr_int( w, PCR_BYTE_OFFSET );
         bs_write1( &q, discontinuity ); // discontinuity_indicator
         bs_write1( &q, random_access ); // random_access_indicator
         bs_write1( &q, priority );  // elementary_stream_priority_indicator
@@ -377,7 +387,7 @@ static int write_pat( ts_writer_t *w )
     bs_write( s, 2, 0x03 ); // reserved`
 
     // FIXME when multiple programs are allowed do this properly
-    int section_length = w->num_programs * 4 + w->network_pid * 4 + 9;
+    int section_length = w->num_programs * 4 + !!w->network_pid * 4 + 9;
     bs_write( s, 12, section_length & 0x3ff );
 
     bs_write( s, 16, w->ts_id & 0xffff ); // transport_stream_id
@@ -417,13 +427,21 @@ static int eject_queued_pmt( ts_writer_t *w, ts_int_program_t *program, bs_t *s 
 {
     uint8_t **temp;
 
-    write_bytes( s, program->pmt_packets[0], TS_PACKET_SIZE );
+    write_bytes( s, program->pmt_packets[0], TS_PACKET_SIZE + TP_EXTRA_HEADER_BYTES( w ) );
+    free( program->pmt_packets[0] );
 
     if( program->num_queued_pmt > 1 )
+    {
         memmove( &program->pmt_packets[0], &program->pmt_packets[1], (program->num_queued_pmt-1) * sizeof(uint8_t*) );
-
-    temp = realloc( program->pmt_packets, (program->num_queued_pmt-1) * sizeof(uint8_t*) );
-    program->pmt_packets = temp;
+        temp = realloc( program->pmt_packets, (program->num_queued_pmt-1) * sizeof(uint8_t*) );
+        if( temp )
+            program->pmt_packets = temp;
+    }
+    else
+    {
+        free( program->pmt_packets );
+        program->pmt_packets = NULL;
+    }
 
     program->num_queued_pmt--;
 
@@ -447,11 +465,6 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
     /* this should never happen */
     if( program->num_queued_pmt )
         return eject_queued_pmt( w, program, s );
-
-    start = bs_pos( s );
-    write_packet_header( w, s, 1, program->pmt.pid, PAYLOAD_ONLY, &program->pmt.cc );
-
-    bs_write( s, 8, 0 );       // pointer field
 
     bs_init( &o, pmt_buf, 2048 );
 
@@ -514,7 +527,7 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
          bs_write( &p, 4, 0xf );  // reserved
 
          /* reset temporary bitstream context for streams loop */
-         bs_init( &q, temp1, 512 );
+         bs_init( &q, temp1, sizeof(temp1) );
 
          if( stream->stream_format != LIBMPEGTS_ANCILLARY_RDD11 && stream->stream_format != LIBMPEGTS_DATA_SCTE35 )
              write_data_stream_alignment_descriptor( &q );
@@ -540,7 +553,8 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
          }
          else if( stream->stream_format == LIBMPEGTS_VIDEO_AVC )
          {
-             write_avc_descriptor( &q, program, stream );
+             if( stream->mpegvideo_ctx )
+                 write_avc_descriptor( &q, program, stream );
              if( w->ts_type == TS_TYPE_BLU_RAY )
                  write_hdmv_video_registration_descriptor( &q, stream );
          }
@@ -607,11 +621,18 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
          bs_flush( &q );
          bs_write( &p, 12, bs_pos( &q ) >> 3 );   // ES_info_length
          write_bytes( &p, temp1, bs_pos( &q ) >> 3 );
+
+         /* section length includes crc */
+         if( (bs_pos( &p ) >> 3) + 4 > MAX_PSI_SECTION_LENGTH )
+         {
+             fprintf( stderr, "PMT too large\n" );
+             return -1;
+         }
     }
 
     /* section length includes crc */
     section_length = (bs_pos( &p ) >> 3) + 4;
-    bs_write( &o, 12, section_length & 0x3ff );
+    bs_write( &o, 12, section_length );
 
     /* write main chunk into pmt array */
     bs_flush( &p );
@@ -620,6 +641,11 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
     /* take crc of the whole program map section */
     bs_flush( &o );
     write_crc( &o, 0 );
+
+    start = bs_pos( s ) + TP_EXTRA_HEADER_BYTES( w ) * 8;
+    write_packet_header( w, s, 1, program->pmt.pid, PAYLOAD_ONLY, &program->pmt.cc );
+
+    bs_write( s, 8, 0 );       // pointer field
 
     int length = bs_pos( &o ) >> 3;
     int bytes_left = TS_PACKET_SIZE - ((bs_pos( s ) - start) >> 3);
@@ -651,19 +677,19 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
         }
         program->pmt_packets = temp2;
 
-        program->pmt_packets[program->num_queued_pmt] = malloc( TS_PACKET_SIZE );
+        program->pmt_packets[program->num_queued_pmt] = malloc( TS_PACKET_SIZE + TP_EXTRA_HEADER_BYTES( w ) );
         if( !program->pmt_packets[program->num_queued_pmt] )
         {
             fprintf( stderr, "malloc failed" );
             return -1;
         }
 
-        bs_init( &z, program->pmt_packets[program->num_queued_pmt], 188 );
+        bs_init( &z, program->pmt_packets[program->num_queued_pmt], TS_PACKET_SIZE + TP_EXTRA_HEADER_BYTES( w ) );
 
         write_packet_header( w, &z, 0, program->pmt.pid, PAYLOAD_ONLY, &program->pmt.cc );
         write_bytes( &z, &pmt_buf[pos], MIN( bytes_left, length ) );
         bs_flush( &z );
-        write_padding( &z, 0 );
+        write_padding( &z, TP_EXTRA_HEADER_BYTES( w ) * 8 );
         pos += MIN( bytes_left, length );
         length -= MIN( bytes_left, length );
         program->num_queued_pmt++;
@@ -696,7 +722,7 @@ static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program )
 static int write_sit( ts_writer_t *w )
 {
     int start;
-    int len = 0; // FIXME
+    int len = w->ts_type == TS_TYPE_BLU_RAY ? 10 : 0; /* partial_transport_stream_descriptor */
     bs_t *s = &w->out.bs;
 
     write_packet_header( w, s, 1, SIT_PID, PAYLOAD_ONLY, &w->sit->cc );
@@ -708,9 +734,7 @@ static int write_sit( ts_writer_t *w )
     bs_write1( s, 1 );         // DVB_reserved_future_use
     bs_write( s, 2, 0x03 );    // ISO_reserved
 
-    // FIXME do length properly
-
-    bs_write( s, 12, 11 + len ); // section_length
+    bs_write( s, 12, 11 + len + 4 * w->num_programs ); // section_length
     bs_write( s, 16, 0xffff ); // DVB_reserved_future_use
     bs_write( s, 2, 0x03 );    // ISO_reserved
     bs_write( s, 5, w->sit->version_number ); // version_number
@@ -794,7 +818,7 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
     bs_write1( &q, stream->stream_format == LIBMPEGTS_VIDEO_DIRAC ); // PES_extension_flag
 
     if( stream->stream_format == LIBMPEGTS_VIDEO_DIRAC )
-        bs_write( &q, 8, 0x08 ); // PES_header_data_length
+        bs_write( &q, 8, same_timestamps ? 0x08 : 0x0d ); // PES_header_data_length
     else if( stream->stream_format == LIBMPEGTS_DVB_TELETEXT || stream->stream_format == LIBMPEGTS_DVB_VBI )
         bs_write( &q, 8, 0x24 ); // PES_header_data_length
     else if( same_timestamps )
@@ -818,7 +842,7 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
         bs_write1( &q, 0 );      // pack_header_field_flag
         bs_write1( &q, 0 );      // program_packet_sequence_counter_flag
         bs_write1( &q, 0 );      // P-STD_buffer_flag
-        bs_write( &q, 3, 0x0a ); // reserved
+        bs_write( &q, 3, 0x07 ); // reserved
         bs_write1( &q, 1 );      // PES_extension_flag_2
 
         bs_write1( &q, 1 );      // marker_bit
@@ -842,6 +866,11 @@ static int write_pes( ts_writer_t *w, ts_int_program_t *program, ts_frame_t *in_
     if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_AVC ||
         stream->stream_format == LIBMPEGTS_VIDEO_DIRAC )
         bs_write( &s, 16, 0 );          // PES_packet_length
+    else if( total_size > 0xffff )
+    {
+        fprintf( stderr, "PES packet too large for PID %i\n", stream->pid );
+        bs_write( &s, 16, 0 );          // PES_packet_length
+    }
     else
         bs_write( &s, 16, total_size ); // PES_packet_length
 
@@ -863,7 +892,7 @@ static int write_null_packet( ts_writer_t *w )
     int cc = 0;
 
     bs_t *s = &w->out.bs;
-    start = bs_pos( s );
+    start = bs_pos( s ) + TP_EXTRA_HEADER_BYTES( w ) * 8;
 
     write_packet_header( w, s, 0, NULL_PID, PAYLOAD_ONLY, &cc );
     write_padding( s, start );
@@ -901,11 +930,19 @@ static int check_bitstream( ts_writer_t *w )
     return 0;
 }
 
+static char *copy_string( const char *str )
+{
+    char *ret = malloc( strlen( str ) + 1 );
+    if( ret )
+        strcpy( ret, str );
+    return ret;
+}
+
 /* set updatable ts parameters */
 static void update_ts_params( ts_writer_t *w, ts_main_t *params )
 {
     w->ts_muxrate = params->muxrate;
-    w->cbr = params->cbr;
+    w->cbr = !!params->cbr;
     w->legacy_constraints = params->legacy_constraints;
     w->lowlatency = params->lowlatency;
 
@@ -962,6 +999,20 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         return -1;
     }
 
+    if( params->programs[0].num_streams < 0 || params->programs[0].num_streams > MAX_STREAMS )
+    {
+        fprintf( stderr, "Invalid number of streams\n" );
+        return -1;
+    }
+
+    /* service descriptor names share an 8-bit descriptor_length with 3 other bytes */
+    if( ( params->programs[0].sdt.service_name ? strlen( params->programs[0].sdt.service_name ) : 0 ) +
+        ( params->programs[0].sdt.provider_name ? strlen( params->programs[0].sdt.provider_name ) : 0 ) > 252 )
+    {
+        fprintf( stderr, "Service and provider names too long\n" );
+        return -1;
+    }
+
     BOOLIFY( params->cbr );
     BOOLIFY( params->legacy_constraints );
 
@@ -987,25 +1038,17 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
     cur_program->video_dts = -1;
 
     cur_program->sdt_ctx.service_type = params->programs[0].sdt.service_type;
-    if( params->programs[0].sdt.service_name )
+    cur_program->sdt_ctx.service_name = copy_string( params->programs[0].sdt.service_name ? params->programs[0].sdt.service_name : "" );
+    if( !cur_program->sdt_ctx.service_name )
     {
-        cur_program->sdt_ctx.service_name = malloc( strlen( params->programs[0].sdt.service_name ) + 1 );
-        if( !cur_program->sdt_ctx.service_name )
-        {
-            fprintf( stderr, "Malloc failed\n" );
-            return -1;
-        }
-        strcpy( cur_program->sdt_ctx.service_name, params->programs[0].sdt.service_name );
+        fprintf( stderr, "Malloc failed\n" );
+        return -1;
     }
-    if( params->programs[0].sdt.provider_name )
+    cur_program->sdt_ctx.provider_name = copy_string( params->programs[0].sdt.provider_name ? params->programs[0].sdt.provider_name : "" );
+    if( !cur_program->sdt_ctx.provider_name )
     {
-        cur_program->sdt_ctx.provider_name = malloc( strlen( params->programs[0].sdt.provider_name ) + 1 );
-        if( !cur_program->sdt_ctx.provider_name )
-        {
-            fprintf( stderr, "Malloc failed\n" );
-            return -1;
-        }
-        strcpy( cur_program->sdt_ctx.provider_name, params->programs[0].sdt.provider_name );
+        fprintf( stderr, "Malloc failed\n" );
+        return -1;
     }
 
     for( int i = 0; i < params->programs[0].num_streams; i++ )
@@ -1077,7 +1120,9 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
             cur_stream->stream_identifier = stream_in->stream_identifier & 0xff;
         }
 
-        cur_stream->dvb_au = stream_in->dvb_au;
+        /* AU_information is only defined for MPEG-2 and AVC here */
+        cur_stream->dvb_au = ( cur_stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 ||
+                               cur_stream->stream_format == LIBMPEGTS_VIDEO_AVC ) && stream_in->dvb_au;
         cur_stream->dvb_au_frame_rate = stream_in->dvb_au_frame_rate;
 
         cur_stream->hdmv_frame_rate   = stream_in->hdmv_frame_rate;
@@ -1098,6 +1143,12 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
         {
             cur_stream->rx = MISC_AUDIO_RXN;
             cur_stream->mb.buf_size = w->ts_type == TS_TYPE_ATSC || w->ts_type == TS_TYPE_CABLELABS ? AC3_BS_ATSC : AC3_BS_DVB;
+        }
+        else if( cur_stream->stream_format == LIBMPEGTS_AUDIO_ADTS || cur_stream->stream_format == LIBMPEGTS_AUDIO_LATM )
+        {
+            /* stereo until ts_setup_*_aac_stream says otherwise */
+            cur_stream->rx = aac_buffers[0].rxn;
+            cur_stream->mb.buf_size = aac_buffers[0].bsn;
         }
         else if( cur_stream->stream_format == LIBMPEGTS_AUDIO_302M )
         {
@@ -1166,10 +1217,18 @@ int ts_setup_transport_stream( ts_writer_t *w, ts_main_t *params )
 
 void ts_update_transport_stream( ts_writer_t *w, ts_main_t *params )
 {
-    int64_t cur_pcr = get_pcr_int( w, 0 );
-    if( params->muxrate != w->ts_muxrate )
+    if( !params->muxrate )
     {
-        update_ts_params( w, params );
+        fprintf( stderr, "Muxrate must be nonzero\n" );
+        return;
+    }
+
+    int64_t cur_pcr = get_pcr_int( w, 0 );
+    int muxrate_changed = params->muxrate != w->ts_muxrate;
+
+    update_ts_params( w, params );
+    if( muxrate_changed )
+    {
         w->packets_written = 0;
         w->pcr_start = cur_pcr;
     }
@@ -1258,6 +1317,25 @@ int ts_setup_mpegvideo_stream( ts_writer_t *w, int pid, int level, int profile, 
 
     if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 )
     {
+        /* H.262 Tables 8-2 and 8-3; 4:2:2 uses the escape code with profile bits 000 */
+        static const int mpeg2_au_profiles[] = { [LIBMPEGTS_MPEG2_PROFILE_SIMPLE] = 5, [LIBMPEGTS_MPEG2_PROFILE_MAIN] = 4,
+                                                 [LIBMPEGTS_MPEG2_PROFILE_422] = 0 };
+        static const int mpeg2_au_levels[] = { [LIBMPEGTS_MPEG2_LEVEL_LOW] = 10, [LIBMPEGTS_MPEG2_LEVEL_MAIN] = 8,
+                                               [LIBMPEGTS_MPEG2_LEVEL_HIGH_1440] = 6, [LIBMPEGTS_MPEG2_LEVEL_HIGH] = 4,
+                                               [LIBMPEGTS_MPEG2_LEVEL_HIGHP] = -1 };
+
+        stream->mpegvideo_ctx->au_profile = mpeg2_au_profiles[profile];
+        stream->mpegvideo_ctx->au_level = profile == LIBMPEGTS_MPEG2_PROFILE_422 ? 5 : mpeg2_au_levels[level];
+    }
+    else
+    {
+        stream->mpegvideo_ctx->au_profile = avc_profiles[profile];
+        /* Baseline/Main level 1b is level_idc 11 with constraint_set3_flag */
+        stream->mpegvideo_ctx->au_level = level == 9 && profile <= AVC_MAIN ? 11 : level;
+    }
+
+    if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 )
+    {
         bs_mux = 0.004 * mpeg2_levels[level_idx].bitrate;
         bs_oh = 1.0 * mpeg2_levels[level_idx].bitrate/750.0;
 
@@ -1333,6 +1411,7 @@ int ts_setup_mpeg2_aac_stream( ts_writer_t *w, int pid, int profile, int channel
         {
             stream->rx = aac_buffers[i].rxn;
             stream->mb.buf_size = aac_buffers[i].bsn;
+            break;
         }
     }
     return 0;
@@ -1375,6 +1454,7 @@ int ts_setup_mpeg4_aac_stream( ts_writer_t *w, int pid, int profile_and_level, i
         {
             stream->rx = aac_buffers[i].rxn;
             stream->mb.buf_size = aac_buffers[i].bsn;
+            break;
         }
     }
 
@@ -1412,7 +1492,8 @@ int ts_setup_dvb_subtitles( ts_writer_t *w, int pid, int has_dds, int num_subtit
         return -1;
     }
 
-    if( !subtitles || !num_subtitles )
+    /* 8 bytes each in an 8-bit descriptor_length */
+    if( !subtitles || num_subtitles <= 0 || num_subtitles > 31 )
     {
         fprintf( stderr, "Invalid Number of subtitles\n" );
         return -1;
@@ -1460,7 +1541,8 @@ int ts_setup_dvb_teletext( ts_writer_t *w, int pid, int num_teletexts, ts_dvb_tt
         return -1;
     }
 
-    if( !teletexts || !num_teletexts )
+    /* 5 bytes each in an 8-bit descriptor_length */
+    if( !teletexts || num_teletexts <= 0 || num_teletexts > 51 )
     {
         fprintf( stderr, "Invalid Number of teletexts\n" );
         return -1;
@@ -1483,6 +1565,18 @@ int ts_setup_dvb_teletext( ts_writer_t *w, int pid, int num_teletexts, ts_dvb_tt
     return 0;
 }
 
+static void free_dvb_vbi( ts_int_stream_t *stream )
+{
+    if( stream->dvb_vbi_ctx )
+    {
+        for( int i = 0; i < stream->num_dvb_vbi; i++ )
+            free( stream->dvb_vbi_ctx[i].lines );
+        free( stream->dvb_vbi_ctx );
+    }
+    stream->dvb_vbi_ctx = NULL;
+    stream->num_dvb_vbi = 0;
+}
+
 int ts_setup_dvb_vbi( ts_writer_t *w, int pid, int num_vbis, ts_dvb_vbi_t *vbis )
 {
     if( w->ts_type == TS_TYPE_BLU_RAY )
@@ -1499,21 +1593,40 @@ int ts_setup_dvb_vbi( ts_writer_t *w, int pid, int num_vbis, ts_dvb_vbi_t *vbis 
         return -1;
     }
 
-    if( !vbis || !num_vbis )
+    if( !vbis || num_vbis <= 0 )
     {
         fprintf( stderr, "Invalid Number of VBI services\n" );
         return -1;
     }
 
-    if( stream->dvb_vbi_ctx )
-        free( stream->dvb_vbi_ctx );
+    /* data_service_id + data_service_descriptor_length + one byte per line in an 8-bit descriptor_length */
+    int descriptor_length = 0;
+    for( int i = 0; i < num_vbis; i++ )
+    {
+        if( vbis[i].num_lines < 0 || vbis[i].num_lines > 255 )
+        {
+            fprintf( stderr, "Invalid Number of VBI lines\n" );
+            return -1;
+        }
+        descriptor_length += 2 + vbis[i].num_lines;
+    }
+
+    if( descriptor_length > 255 )
+    {
+        fprintf( stderr, "Too many VBI services\n" );
+        return -1;
+    }
+
+    free_dvb_vbi( stream );
 
     stream->dvb_vbi_ctx = calloc( 1, num_vbis * sizeof(ts_dvb_vbi_t) );
     if( !stream->dvb_vbi_ctx )
         return -1;
 
-    stream->num_dvb_vbi = num_vbis;
     memcpy( stream->dvb_vbi_ctx, vbis, num_vbis * sizeof(ts_dvb_vbi_t) );
+    for( int i = 0; i < num_vbis; i++ )
+        stream->dvb_vbi_ctx[i].lines = NULL;
+    stream->num_dvb_vbi = num_vbis;
 
     for( int i = 0; i < stream->num_dvb_vbi; i++ )
     {
@@ -1521,15 +1634,7 @@ int ts_setup_dvb_vbi( ts_writer_t *w, int pid, int num_vbis, ts_dvb_vbi_t *vbis 
         if( !stream->dvb_vbi_ctx[i].lines )
         {
             fprintf( stderr, "Malloc failed\n" );
-
-            for( int j = 0; i < stream->num_dvb_vbi; j++ )
-            {
-                if( stream->dvb_vbi_ctx[j].lines )
-                    free( stream->dvb_vbi_ctx[j].lines );
-            }
-
-            free( stream->dvb_vbi_ctx );
-
+            free_dvb_vbi( stream );
             return -1;
         }
         memcpy( stream->dvb_vbi_ctx[i].lines, vbis[i].lines, vbis[i].num_lines * sizeof(ts_dvb_vbi_line_t) );
@@ -1576,7 +1681,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
 
     int initial_queued_pes = w->num_buffered_frames;
     ts_int_pes_t **queued_pes;
-    ts_int_pes_t **new_pes;
+    ts_int_pes_t **new_pes = NULL;
 
     int stuffing, flags, pkt_bytes_left, write_pcr, write_adapt_field, adapt_field_len, pes_start, running;
     uint8_t temp[200];
@@ -1595,21 +1700,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         return -1;
     }
 
-    if( num_frames )
-    {
-        ts_int_pes_t **tmp = realloc( w->buffered_frames, (w->num_buffered_frames+num_frames) * sizeof(w->buffered_frames[0]) );
-        if( !tmp )
-        {
-           fprintf( stderr, "Malloc failed\n" );
-           return -1;
-        }
-        w->buffered_frames = tmp;
-        new_pes = &w->buffered_frames[w->num_buffered_frames];
-        w->num_buffered_frames += num_frames;
-    }
-
-    queued_pes = w->buffered_frames;
-
+    /* validate everything before queueing so an error leaves the queue untouched */
     for( int i = 0; i < num_frames; i++ )
     {
         stream = find_stream( w, frames[i].pid );
@@ -1628,7 +1719,6 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                fprintf( stderr, "MPEG video stream needs additional information. Call ts_setup_mpegvideo_stream \n" );
                return -1;
             }
-            program->video_dts = frames[i].dts;
         }
         else if( stream->stream_format == LIBMPEGTS_DVB_SUB )
         {
@@ -1655,11 +1745,37 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             }
         }
         // TODO more
+    }
 
-        new_pes[i] = calloc( 1, sizeof(ts_int_pes_t) );
-        if( !new_pes[i] )
+    if( num_frames )
+    {
+        ts_int_pes_t **tmp = realloc( w->buffered_frames, (w->num_buffered_frames+num_frames) * sizeof(w->buffered_frames[0]) );
+        if( !tmp )
         {
            fprintf( stderr, "Malloc failed\n" );
+           return -1;
+        }
+        w->buffered_frames = tmp;
+        new_pes = &w->buffered_frames[w->num_buffered_frames];
+    }
+
+    for( int i = 0; i < num_frames; i++ )
+    {
+        stream = find_stream( w, frames[i].pid );
+
+        if( stream->stream_format == LIBMPEGTS_VIDEO_MPEG2 || stream->stream_format == LIBMPEGTS_VIDEO_AVC )
+            program->video_dts = frames[i].dts;
+
+        new_pes[i] = calloc( 1, sizeof(ts_int_pes_t) );
+        if( !new_pes[i] || !(new_pes[i]->data = malloc( frames[i].size + 512 )) )
+        {
+           fprintf( stderr, "Malloc failed\n" );
+           for( int j = 0; j <= i; j++ )
+           {
+               if( new_pes[j] )
+                   free( new_pes[j]->data );
+               free( new_pes[j] );
+           }
            return -1;
         }
 
@@ -1699,21 +1815,10 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             ( w->ts_type == TS_TYPE_CABLELABS || w->ts_type == TS_TYPE_ATSC ) &&
             frames[i].size > 100 && frames[i].data[0] == 0xb && frames[i].data[1] == 0x77 )
         {
+            /* optional, the generic AC-3 descriptor is written without it */
             stream->atsc_ac3_ctx = calloc( 1, sizeof(ts_atsc_ac3_info) );
-            if( !stream->atsc_ac3_ctx  )
-            {
-               fprintf( stderr, "Malloc failed\n" );
-               return -1;
-            }
-            parse_ac3_frame( stream->atsc_ac3_ctx, frames[i].data );
-        }
-
-        /* 512 bytes is more than enough for pes overhead */
-        new_pes[i]->data = malloc( frames[i].size + 512 );
-        if( !new_pes[i]->data )
-        {
-           fprintf( stderr, "Malloc failed\n" );
-           return -1;
+            if( stream->atsc_ac3_ctx )
+                parse_ac3_frame( stream->atsc_ac3_ctx, frames[i].data );
         }
 
         /* Not technically a PES but put it through the same codepath */
@@ -1731,9 +1836,12 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         }
     }
 
+    w->num_buffered_frames += num_frames;
+    queued_pes = w->buffered_frames;
+
     if( !w->lowlatency && !initial_queued_pes )
     {
-        out = NULL;
+        *out = NULL;
         *len = 0;
         *pcr_list = NULL;
         return 0;
@@ -1776,7 +1884,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             {
                 /* last frame is a special case - FIXME: is this acceptable in all use-cases? */
                 if( !num_frames )
-                    pcr_stop = queued_pes[i]->dts;
+                    pcr_stop = queued_pes[i]->dts * 300;
                 else if( !video_found )
                     video_found = 1;
                 else
@@ -1857,6 +1965,15 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             stream = pes->stream;
             pes_start = pes->data == pes->cur_pos; /* flag if packet contains pes header */
 
+            /* a separate PCR packet takes this slot, so decide again on the next one */
+            if( check_pcr( w, program ) && program->pcr_stream != stream )
+            {
+                if( write_pcr_empty( w, program, 0 ) < 0 )
+                    return -1;
+                cur_pcr = get_pcr_int( w, 0 );
+                continue;
+            }
+
             if( pcr_stop < cur_pcr )
                 fprintf( stderr, "\n pcr_stop is less than pcr pid: %i pcr_stop: %"PRIi64" pcr: %"PRIi64" \n", pes->stream->pid, pcr_stop, cur_pcr );
 
@@ -1872,16 +1989,9 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             if( pes_start && pes->random_access )
                 write_adapt_field = 1;
 
+            /* piggyback pcr on this stream */
             if( check_pcr( w, program ) )
-            {
-                if( program->pcr_stream == stream )
-                {
-                    /* piggyback pcr on this stream */
-                    write_adapt_field = write_pcr = 1;
-                }
-                else if( write_pcr_empty( w, program, 0 ) < 0 )
-                    return -1;
-            }
+                write_adapt_field = write_pcr = 1;
 
 #if 0
             if( IS_VIDEO( stream ) && pes_start )
@@ -1946,7 +2056,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                     stuffing -= 2;  /* 2 bytes for adaptation field in this case. NOTE: needs fixing if more private data added */
                 }
 
-                start = bs_pos( s );
+                start = bs_pos( s ) + TP_EXTRA_HEADER_BYTES( w ) * 8;
                 write_packet_header( w, s, pes_start, stream->pid, PAYLOAD_ONLY + ((!!adapt_field_len)<<1), &stream->cc );
                 if( adapt_field_len )
                     write_adaptation_field( w, s, program, pes, write_pcr, flags, stuffing, 0 );
@@ -2021,6 +2131,13 @@ int ts_close_writer( ts_writer_t *w )
 {
     for( int i = 0; i < w->num_programs; i++ )
     {
+        /* a separate PCR PID is not in streams[] */
+        int internal_pcr_pid = 0;
+        for( int j = 0; j < w->programs[i]->num_streams; j++ )
+            internal_pcr_pid |= w->programs[i]->streams[j] == w->programs[i]->pcr_stream;
+        if( !internal_pcr_pid )
+            free( w->programs[i]->pcr_stream );
+
         for( int j = 0; j < w->programs[i]->num_streams; j++ )
         {
             // TODO free other stuff
@@ -2034,8 +2151,7 @@ int ts_close_writer( ts_writer_t *w )
                 free( w->programs[i]->streams[j]->dvb_sub_ctx );
             if( w->programs[i]->streams[j]->dvb_ttx_ctx )
                 free( w->programs[i]->streams[j]->dvb_ttx_ctx );
-            if( w->programs[i]->streams[j]->dvb_vbi_ctx )
-                free( w->programs[i]->streams[j]->dvb_vbi_ctx );
+            free_dvb_vbi( w->programs[i]->streams[j] );
 
             free( w->programs[i]->streams[j] );
         }

@@ -52,6 +52,12 @@
 #define TS_START       10
 #define TIMESTAMP_CLOCK 90000LL
 
+/* byte containing the last bit of program_clock_reference_base */
+#define PCR_BYTE_OFFSET 10
+#define MAX_PSI_SECTION_LENGTH 1021
+/* Blu-Ray TP_extra_header in front of each transport packet */
+#define TP_EXTRA_HEADER_BYTES(w) ((w)->ts_type == TS_TYPE_BLU_RAY ? 4 : 0)
+
 // arbitrary
 #define MAX_PROGRAMS   100
 #define MAX_STREAMS    100
@@ -108,6 +114,9 @@ typedef struct
     int level;
     int profile;
     int frame_rate;
+    /* bitstream profile/level codes for DVB AU_information, -1 if unknown */
+    int au_profile;
+    int au_level;
 } mpegvideo_stream_ctx_t;
 
 typedef struct

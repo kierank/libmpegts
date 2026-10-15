@@ -30,7 +30,7 @@ void write_aac_descriptor( bs_t *s, ts_int_stream_t *stream )
     bs_write( s, 8, 2 );                      // descriptor_length
     bs_write( s, 8, stream->aac_profile );    // profile_and_level
     bs_write( s, 1, 0 );                      // AAC_type_flag
-    bs_write( s, 7, 0 );                      // reserved
+    bs_write( s, 7, 0x7f );                   // reserved_future_use
 }
 
 void write_adaptation_field_data_descriptor( bs_t *s, uint8_t identifier )
@@ -152,7 +152,7 @@ int write_nit( ts_writer_t *w )
     bs_write( s, 2, 0x03 );    // reserved
     bs_write( s, 12, 0x13 );   // section_length
     bs_write( s, 16, w->network_id ); // network_id
-    bs_write( s, 2, 0x02 );    // reserved
+    bs_write( s, 2, 0x03 );    // reserved
     bs_write( s, 5, 0 );       // version_number
     bs_write1( s, 1 );         // current_next_indicator
     bs_write(s, 8, 0 );        // section_number
@@ -163,7 +163,7 @@ int write_nit( ts_writer_t *w )
     // network descriptor(s) here
 
     bs_write(s, 4, 0xf );        // reserved_future_use
-    bs_write(s, 12, 0 );         // transport_stream_loop_length
+    bs_write(s, 12, 6 );         // transport_stream_loop_length
 
     bs_write( s, 16, w->ts_id ); // transport_stream_id
     bs_write( s, 16, w->network_id );   // original_network_id
@@ -219,7 +219,7 @@ int write_sdt( ts_writer_t *w )
         goto end;
     }
 
-    start = bs_pos( s );
+    start = bs_pos( s ) + TP_EXTRA_HEADER_BYTES( w ) * 8;
     write_packet_header( w, s, 1, SDT_PID, PAYLOAD_ONLY, &w->sdt->cc );
     bs_write( s, 8, 0 );         // pointer field
 
@@ -296,7 +296,7 @@ int write_sdt( ts_writer_t *w )
     /* keep writing SDT packets */
     while( length > 0 )
     {
-        start = bs_pos( s );
+        start = bs_pos( s ) + TP_EXTRA_HEADER_BYTES( w ) * 8;
         write_packet_header( w, s, 0, SDT_PID, PAYLOAD_ONLY, &w->sdt->cc );
         write_bytes( s, &sdt_buf[pos], MIN( bytes_left, length ) );
         write_padding( s, start );
@@ -407,39 +407,46 @@ void write_dvb_au_information( bs_t *s, ts_int_pes_t *pes )
     else if( stream->stream_format == LIBMPEGTS_VIDEO_AVC )
         bs_write( &q, 2, 0 ); // AU_coding_format
 
+    mpegvideo_stream_ctx_t *ctx = stream->mpegvideo_ctx;
+    int profile_info = ctx && ctx->au_profile >= 0 && ctx->au_level >= 0;
+
     bs_write1( &q, 1 ); // AU_PTS_present_flag
-    bs_write1( &q, 1 ); // AU_profile_info_present_flag
+    bs_write1( &q, profile_info ); // AU_profile_info_present_flag
     bs_write1( &q, 1 ); // AU_stream_info_present_flag
     bs_write1( &q, 0 ); // AU_trick_mode_info_present_flag
 
-    bs_write32( &q, (pes->pts * 300) & 0xffffffff ); // AU_PTS_32
+    /* 32 most significant bits of the 33-bit PTS */
+    bs_write32( &q, ((pes->pts & 0x1ffffffffLL) >> 1) & 0xffffffff ); // AU_PTS_32
 
     bs_write( &q, 4, 0 ); // reserved
     bs_write( &q, 4, stream->dvb_au_frame_rate ); // AU_frame_rate_code
 
-    bs_write( &q, 8, stream->mpegvideo_ctx->profile & 0xff ); // profile_idc
-
-    if( stream->stream_format == LIBMPEGTS_VIDEO_AVC )
+    if( profile_info )
     {
-        bs_write1( &q, stream->mpegvideo_ctx->profile == AVC_BASELINE ); // constraint_set0_flag
-        bs_write1( &q, stream->mpegvideo_ctx->profile <= AVC_MAIN );     // constraint_set1_flag
-        bs_write1( &q, 0 );                                              // constraint_set2_flag
-        if( stream->mpegvideo_ctx->level == 9 && stream->mpegvideo_ctx->profile <= AVC_MAIN ) // level 1b
-            bs_write1( &q, 1 );                                           // constraint_set3_flag
-        else if( stream->mpegvideo_ctx->profile == AVC_HIGH_10_INTRA   ||
-                 stream->mpegvideo_ctx->profile == AVC_CAVLC_444_INTRA ||
-                 stream->mpegvideo_ctx->profile == AVC_HIGH_444_INTRA )
-            bs_write1( &q, 1 );                                           // constraint_set3_flag
-        else
-            bs_write1( &q, 0 );                                           // constraint_set3_flag
-        bs_write1( &q, 0 );                                               // constraint_set4_flag
-        bs_write1( &q, 0 );                                               // constraint_set5_flag
-    }
-    else
-        bs_write( &q, 5, 0 );
+        bs_write( &q, 8, ctx->au_profile ); // AU_profile
 
-    bs_write( &q, 2, 0 );                                                 // AU_AVC_compatible_flags
-    bs_write( &q, 8, stream->mpegvideo_ctx->level & 0xff );               // level_idc
+        if( stream->stream_format == LIBMPEGTS_VIDEO_AVC )
+        {
+            bs_write1( &q, ctx->profile == AVC_BASELINE ); // AU_constraint_set0_flag
+            bs_write1( &q, ctx->profile <= AVC_MAIN );     // AU_constraint_set1_flag
+            bs_write1( &q, 0 );                            // AU_constraint_set2_flag
+            if( ctx->level == 9 && ctx->profile <= AVC_MAIN ) // level 1b
+                bs_write1( &q, 1 );                        // constraint_set3_flag
+            else if( ctx->profile == AVC_HIGH_10_INTRA   ||
+                     ctx->profile == AVC_CAVLC_444_INTRA ||
+                     ctx->profile == AVC_HIGH_444_INTRA )
+                bs_write1( &q, 1 );                        // constraint_set3_flag
+            else
+                bs_write1( &q, 0 );                        // constraint_set3_flag
+            bs_write1( &q, 0 );                            // constraint_set4_flag
+            bs_write1( &q, 0 );                            // constraint_set5_flag
+            bs_write( &q, 2, 0 );                          // rest of AU_AVC_compatible_flags
+        }
+        else
+            bs_write( &q, 8, 0 ); // AU_constraint_set0..2_flag, AU_AVC_compatible_flags
+
+        bs_write( &q, 8, ctx->au_level ); // AU_level
+    }
 
     if( pes->write_pulldown_info )
     {

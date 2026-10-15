@@ -75,7 +75,7 @@ void write_hdmv_video_registration_descriptor( bs_t *s, ts_int_stream_t *stream 
         bs_write( s, 8, *format_id++ );  // format_identifier
 
     bs_write( s, 8, 0xff ); // stuffing_bits
-    bs_write( s, 8, stream->stream_id ); // stream_coding_type
+    bs_write( s, 8, stream->stream_type ); // stream_coding_type
     bs_write( s, 4, stream->hdmv_video_format ); // video_format
     bs_write( s, 4, stream->hdmv_frame_rate );   // frame_rate
     bs_write( s, 4, stream->hdmv_aspect_ratio ); // aspect_ratio
