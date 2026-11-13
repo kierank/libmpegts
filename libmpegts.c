@@ -223,14 +223,51 @@ static int check_pcr( ts_writer_t *w, ts_int_program_t *program )
     return 0;
 }
 
-/* Drip packets so the last one starts one packet time before final_arrival_time.
+/* times a periodic packet first due at next goes out in [cur_pcr, end] */
+static int64_t num_due( int64_t next, int64_t period, int64_t cur_pcr, int64_t end )
+{
+    if( period <= 0 || next > end )
+        return 0;
+
+    return 1 + (end - MAX( next, cur_pcr )) / period;
+}
+
+/* Slots in [cur_pcr, end] that PSI/SI and PCR packets take from this PES */
+static int64_t overhead_pkts( ts_writer_t *w, ts_int_program_t *program, ts_int_pes_t *pes,
+                              int64_t cur_pcr, int64_t end, int64_t pkt_time )
+{
+    int64_t pat_period = w->pat_period * (TS_CLOCK/1000);
+    int64_t pkts = program->num_queued_pmt;
+
+    pkts += num_due( (int64_t)w->last_pat + pat_period, pat_period, cur_pcr, end ) * w->pat_pmt_pkts;
+
+    if( w->sdt )
+    {
+        int64_t sdt_period = w->sdt_period * (TS_CLOCK/1000);
+        pkts += num_due( (int64_t)w->last_sdt + sdt_period, sdt_period, cur_pcr, end ) * w->sdt_pkts;
+    }
+
+    /* a PCR rides on the PCR stream, any other stream loses the slot */
+    if( program->pcr_stream != pes->stream )
+    {
+        int64_t pcr_period = w->pcr_period * (TS_CLOCK/1000);
+        pkts += num_due( (int64_t)program->last_pcr + pcr_period - pkt_time, pcr_period, cur_pcr, end );
+    }
+
+    return pkts;
+}
+
+/* Drip packets so the last one starts one packet time before final_arrival_time,
+ * leaving room for the PSI/SI and PCR packets due before then.
  * +1 packet on the PCR stream because a PCR adaptation field can shorten any remaining packet. */
-static int pes_due( ts_int_program_t *program, ts_int_pes_t *pes, int64_t cur_pcr, int64_t pkt_time )
+static int pes_due( ts_writer_t *w, ts_int_program_t *program, ts_int_pes_t *pes, int64_t cur_pcr, int64_t pkt_time )
 {
     int pcr_af = program->pcr_stream == pes->stream;
     int64_t total = (pes->size + 183) / 184 + pcr_af;
     int64_t left = (pes->bytes_left + 183) / 184 + pcr_af;
     int64_t end = pes->final_arrival_time - pkt_time;
+
+    end -= overhead_pkts( w, program, pes, cur_pcr, end, pkt_time ) * pkt_time;
 
     if( cur_pcr >= end )
         return 1;
@@ -750,18 +787,25 @@ static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program )
     int64_t cur_pcr = get_pcr_int( w, 0 );
     if( cur_pcr - w->last_pat >= w->pat_period * 27000LL || !w->last_pat )
     {
+        uint64_t pkts = w->packets_written;
+        int queued = program->num_queued_pmt;
+
         /* Although it is not in line with the mux strategy it is good practice to write PAT and PMT together */
         w->last_pat = cur_pcr;
         write_pat( w );          // FIXME handle failure
         write_pmt( w, program ); // FIXME handle failure
+        w->pat_pmt_pkts = w->packets_written - pkts + program->num_queued_pmt - queued;
     }
 
     cur_pcr = get_pcr_int( w, 0 );
 
     if( w->sdt && ( cur_pcr - w->last_sdt >= w->sdt_period * 27000LL || !w->last_sdt ) )
     {
+        uint64_t pkts = w->packets_written;
+
         w->last_sdt = cur_pcr;
         write_sdt( w );
+        w->sdt_pkts = w->packets_written - pkts;
     }
 }
 
@@ -1987,7 +2031,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                     /* exclude video packets */
                     if( cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
                         ( stream->stream_format != LIBMPEGTS_DVB_SUB || dvb_sub_b2_fits( queued_pes[i] ) ) &&
-                        pes_due( program, queued_pes[i], cur_pcr, pkt_time ) )
+                        pes_due( w, program, queued_pes[i], cur_pcr, pkt_time ) )
                     {
                         pes = queued_pes[i];
                     }
@@ -2005,7 +2049,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 {
                     /* Write a video packet anyway if we can put a PCR on it */
                     if( cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
-                        ( need_pcr || pes_due( program, queued_pes[i], cur_pcr, pkt_time ) ) )
+                        ( need_pcr || pes_due( w, program, queued_pes[i], cur_pcr, pkt_time ) ) )
                     {
                         pes = queued_pes[i];
                         break;
