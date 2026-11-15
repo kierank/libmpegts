@@ -223,6 +223,8 @@ static int check_pcr( ts_writer_t *w, ts_int_program_t *program )
     return 0;
 }
 
+#define VIDEO_LEAD_PKTS 1 /* how far video may run ahead of its drip line into padding slots */
+
 /* times a periodic packet first due at next goes out in [cur_pcr, end] */
 static int64_t num_due( int64_t next, int64_t period, int64_t cur_pcr, int64_t end )
 {
@@ -232,7 +234,36 @@ static int64_t num_due( int64_t next, int64_t period, int64_t cur_pcr, int64_t e
     return 1 + (end - MAX( next, cur_pcr )) / period;
 }
 
-/* Slots in [cur_pcr, end] that PSI/SI and PCR packets take from this PES */
+/* Slots in [cur_pcr, end] that queued non-video PES take ahead of video: all of one that must
+ * finish by then, else the share its own drip sends before then */
+static int64_t nonvideo_pkts( ts_writer_t *w, int64_t cur_pcr, int64_t end, int64_t pkt_time )
+{
+    int64_t pkts = 0;
+
+    for( int i = 0; i < w->num_buffered_frames; i++ )
+    {
+        ts_int_pes_t *q = w->buffered_frames[i];
+        int64_t left, start, q_end;
+
+        if( IS_VIDEO( q->stream ) || q->bytes_left <= 0 )
+            continue;
+
+        left = (q->bytes_left + 183) / 184;
+        start = MAX( cur_pcr, q->initial_arrival_time );
+        q_end = q->final_arrival_time - pkt_time;
+        if( start >= end )
+            continue;
+
+        if( q_end <= end || q_end <= start )
+            pkts += left;
+        else
+            pkts += (left * (end - start) + (q_end - start) - 1) / (q_end - start);
+    }
+
+    return pkts;
+}
+
+/* Slots in [cur_pcr, end] that PSI/SI, PCR and, for video, queued non-video packets take from this PES */
 static int64_t overhead_pkts( ts_writer_t *w, ts_int_program_t *program, ts_int_pes_t *pes,
                               int64_t cur_pcr, int64_t end, int64_t pkt_time )
 {
@@ -254,13 +285,19 @@ static int64_t overhead_pkts( ts_writer_t *w, ts_int_program_t *program, ts_int_
         pkts += num_due( (int64_t)program->last_pcr + pcr_period - pkt_time, pcr_period, cur_pcr, end );
     }
 
+    /* non-video PES are written ahead of video */
+    if( IS_VIDEO( pes->stream ) )
+        pkts += nonvideo_pkts( w, cur_pcr, end, pkt_time );
+
     return pkts;
 }
 
 /* Drip packets so the last one starts one packet time before final_arrival_time,
- * leaving room for the PSI/SI and PCR packets due before then.
- * +1 packet on the PCR stream because a PCR adaptation field can shorten any remaining packet. */
-static int pes_due( ts_writer_t *w, ts_int_program_t *program, ts_int_pes_t *pes, int64_t cur_pcr, int64_t pkt_time )
+ * leaving room for the PSI/SI, PCR and (for video) audio packets due before then.
+ * +1 packet on the PCR stream because a PCR adaptation field can shorten any remaining packet.
+ * lead: how many packets ahead of the line the PES may run. */
+static int pes_due( ts_writer_t *w, ts_int_program_t *program, ts_int_pes_t *pes, int64_t cur_pcr, int64_t pkt_time,
+                    int lead )
 {
     int pcr_af = program->pcr_stream == pes->stream;
     int64_t total = (pes->size + 183) / 184 + pcr_af;
@@ -272,7 +309,7 @@ static int pes_due( ts_writer_t *w, ts_int_program_t *program, ts_int_pes_t *pes
     if( cur_pcr >= end )
         return 1;
 
-    return left * (end - pes->initial_arrival_time) > total * (end - cur_pcr);
+    return (left + lead) * (end - pes->initial_arrival_time) > total * (end - cur_pcr);
 }
 
 /* EN 300 743 5: segments leave the coded data buffer when decoded and a display set
@@ -2031,7 +2068,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                     /* exclude video packets */
                     if( cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
                         ( stream->stream_format != LIBMPEGTS_DVB_SUB || dvb_sub_b2_fits( queued_pes[i] ) ) &&
-                        pes_due( w, program, queued_pes[i], cur_pcr, pkt_time ) )
+                        pes_due( w, program, queued_pes[i], cur_pcr, pkt_time, 0 ) )
                     {
                         pes = queued_pes[i];
                     }
@@ -2049,11 +2086,30 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 {
                     /* Write a video packet anyway if we can put a PCR on it */
                     if( cur_pcr >= queued_pes[i]->initial_arrival_time && stream->tb.cur_buf == 0.0 &&
-                        ( need_pcr || pes_due( w, program, queued_pes[i], cur_pcr, pkt_time ) ) )
+                        ( need_pcr || pes_due( w, program, queued_pes[i], cur_pcr, pkt_time, 0 ) ) )
                     {
                         pes = queued_pes[i];
                         break;
                     }
+                }
+            }
+        }
+
+        /* A slot that would otherwise be padding: video may run a packet ahead of its line, so the
+         * mux headroom becomes slack for contention near its deadline without bursting. That includes
+         * the slot straddling its initial arrival time, well within the multiplex buffer allowance. */
+        if( !pes )
+        {
+            for( int i = 0; i < w->num_buffered_frames; i++ )
+            {
+                stream = queued_pes[i]->stream;
+                if( IS_VIDEO( stream ) )
+                {
+                    if( cur_pcr + VIDEO_LEAD_PKTS * pkt_time >= queued_pes[i]->initial_arrival_time &&
+                        stream->tb.cur_buf == 0.0 &&
+                        pes_due( w, program, queued_pes[i], cur_pcr, pkt_time, VIDEO_LEAD_PKTS ) )
+                        pes = queued_pes[i];
+                    break; /* only the earliest video PES */
                 }
             }
         }
