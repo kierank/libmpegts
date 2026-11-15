@@ -2294,8 +2294,9 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
                 if( write_pcr_empty( w, program, 0 ) < 0 )
                     return -1;
             }
-            /* PSI/SI due soon goes into padding rather than into a later, tighter slot */
-            else if( psi_fits_early( w, cur_pcr, pkt_time ) && retransmit_psi_and_si( w, program, PSI_EARLY ) )
+            /* PSI/SI due soon goes into padding rather than into a later, tighter slot. CBR only:
+             * in capped VBR padding is free, so early PSI/SI would only add bitrate. */
+            else if( w->cbr && psi_fits_early( w, cur_pcr, pkt_time ) && retransmit_psi_and_si( w, program, PSI_EARLY ) )
                 ;
             else if( w->cbr )
             {
