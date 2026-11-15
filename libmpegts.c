@@ -226,6 +226,7 @@ static int check_pcr( ts_writer_t *w, ts_int_program_t *program )
 #define VIDEO_LEAD_PKTS 1 /* how far video may run ahead of its drip line into padding slots */
 #define AUDIO_LEAD_PKTS 2 /* the same for non-video PES */
 #define PSI_EARLY (40 * (TS_CLOCK/1000)) /* PSI/SI due this soon goes into padding slots */
+#define TIGHT_MARGIN_PKTS 4 /* a window is tight when its spare slots don't cover the reserved ones plus this */
 
 /* times a periodic packet first due at next goes out in [cur_pcr, end] */
 static int64_t num_due( int64_t next, int64_t period, int64_t cur_pcr, int64_t end )
@@ -294,9 +295,12 @@ static int64_t overhead_pkts( ts_writer_t *w, ts_int_program_t *program, ts_int_
     return pkts;
 }
 
-/* Drip packets so the last one starts one packet time before final_arrival_time,
- * leaving room for the PSI/SI, PCR and (for video) audio packets due before then.
+/* Drip packets so the last one starts one packet time before final_arrival_time.
  * +1 packet on the PCR stream because a PCR adaptation field can shorten any remaining packet.
+ * Leave room for the PSI/SI, PCR and, for video, audio packets due before then, and allow
+ * running lead packets ahead of the line. Video only does so when its window is tight (the
+ * slots left beyond its own barely cover those), so in a roomy mux it stays on the line and
+ * doesn't burst; a slot taken near the end is made up straight away. Audio always does.
  * lead: how many packets ahead of the line the PES may run. */
 static int pes_due( ts_writer_t *w, ts_int_program_t *program, ts_int_pes_t *pes, int64_t cur_pcr, int64_t pkt_time,
                     int lead )
@@ -305,8 +309,12 @@ static int pes_due( ts_writer_t *w, ts_int_program_t *program, ts_int_pes_t *pes
     int64_t total = (pes->size + 183) / 184 + pcr_af;
     int64_t left = (pes->bytes_left + 183) / 184 + pcr_af;
     int64_t end = pes->final_arrival_time - pkt_time;
+    int64_t reserved = overhead_pkts( w, program, pes, cur_pcr, end, pkt_time );
 
-    end -= overhead_pkts( w, program, pes, cur_pcr, end, pkt_time ) * pkt_time;
+    if( !IS_VIDEO( pes->stream ) || (end - cur_pcr) / pkt_time - left < reserved + TIGHT_MARGIN_PKTS )
+        end -= reserved * pkt_time;
+    else
+        lead = 0;
 
     if( cur_pcr >= end )
         return 1;
