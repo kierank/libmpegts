@@ -844,11 +844,20 @@ static int psi_fits_early( ts_writer_t *w, int64_t cur_pcr, int64_t pkt_time, in
     return 1;
 }
 
+/* Due times stay on the period's grid, so early sends don't raise the rate (a gap can then reach
+ * period + PSI_EARLY). Restart the grid from now if more than a period behind. */
+static uint64_t psi_sent_time( uint64_t last, int64_t period, int64_t cur_pcr )
+{
+    if( !last || (int64_t)last + 2 * period <= cur_pcr )
+        return cur_pcr;
+    return last + period;
+}
+
 static void write_pat_timed( ts_writer_t *w, int64_t cur_pcr )
 {
     uint64_t pkts = w->packets_written;
 
-    w->last_pat = cur_pcr;
+    w->last_pat = psi_sent_time( w->last_pat, w->pat_period * 27000LL, cur_pcr );
     write_pat( w ); // FIXME handle failure
     w->pat_pkts = w->packets_written - pkts;
 }
@@ -859,7 +868,7 @@ static void write_pmt_timed( ts_writer_t *w, ts_int_program_t *program, int64_t 
     uint64_t pkts = w->packets_written;
     int queued = program->num_queued_pmt;
 
-    w->last_pmt = cur_pcr;
+    w->last_pmt = psi_sent_time( w->last_pmt, w->pat_period * 27000LL, cur_pcr );
     write_pmt( w, program ); // FIXME handle failure
     w->pmt_pkts = w->packets_written - pkts + program->num_queued_pmt - queued;
 }
@@ -868,7 +877,7 @@ static void write_sdt_timed( ts_writer_t *w, int64_t cur_pcr )
 {
     uint64_t pkts = w->packets_written;
 
-    w->last_sdt = cur_pcr;
+    w->last_sdt = psi_sent_time( w->last_sdt, w->sdt_period * 27000LL, cur_pcr );
     write_sdt( w );
     w->sdt_pkts = w->packets_written - pkts;
 }
