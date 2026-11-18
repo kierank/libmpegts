@@ -273,7 +273,8 @@ static int64_t overhead_pkts( ts_writer_t *w, ts_int_program_t *program, ts_int_
     int64_t pat_period = w->pat_period * (TS_CLOCK/1000);
     int64_t pkts = program->num_queued_pmt;
 
-    pkts += num_due( (int64_t)w->last_pat + pat_period, pat_period, cur_pcr, end ) * w->pat_pmt_pkts;
+    pkts += num_due( (int64_t)w->last_pat + pat_period, pat_period, cur_pcr, end ) * w->pat_pkts;
+    pkts += num_due( (int64_t)w->last_pmt + pat_period, pat_period, cur_pcr, end ) * w->pmt_pkts;
 
     if( w->sdt )
     {
@@ -828,11 +829,9 @@ static int write_pmt( ts_writer_t *w, ts_int_program_t *program )
     return 0;
 }
 
-/* Early PSI/SI goes out as a burst: only if every queued PES keeps that many spare slots before its deadline */
-static int psi_fits_early( ts_writer_t *w, int64_t cur_pcr, int64_t pkt_time )
+/* Early PSI/SI: only if every queued PES keeps burst spare slots before its deadline */
+static int psi_fits_early( ts_writer_t *w, int64_t cur_pcr, int64_t pkt_time, int64_t burst )
 {
-    int64_t burst = w->pat_pmt_pkts + w->sdt_pkts;
-
     for( int i = 0; i < w->num_buffered_frames; i++ )
     {
         ts_int_pes_t *q = w->buffered_frames[i];
@@ -845,36 +844,85 @@ static int psi_fits_early( ts_writer_t *w, int64_t cur_pcr, int64_t pkt_time )
     return 1;
 }
 
-/* Write PAT/PMT and SDT that are due within early (27 MHz) of now. Returns 1 if anything was written. */
-static int retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program, int64_t early )
+static void write_pat_timed( ts_writer_t *w, int64_t cur_pcr )
+{
+    uint64_t pkts = w->packets_written;
+
+    w->last_pat = cur_pcr;
+    write_pat( w ); // FIXME handle failure
+    w->pat_pkts = w->packets_written - pkts;
+}
+
+/* A PMT over one packet queues the rest, which go out spaced */
+static void write_pmt_timed( ts_writer_t *w, ts_int_program_t *program, int64_t cur_pcr )
+{
+    uint64_t pkts = w->packets_written;
+    int queued = program->num_queued_pmt;
+
+    w->last_pmt = cur_pcr;
+    write_pmt( w, program ); // FIXME handle failure
+    w->pmt_pkts = w->packets_written - pkts + program->num_queued_pmt - queued;
+}
+
+static void write_sdt_timed( ts_writer_t *w, int64_t cur_pcr )
+{
+    uint64_t pkts = w->packets_written;
+
+    w->last_sdt = cur_pcr;
+    write_sdt( w );
+    w->sdt_pkts = w->packets_written - pkts;
+}
+
+/* Write the PAT, PMT and SDT that are due. PAT and PMT go out together unless one went early. */
+static void retransmit_psi_and_si( ts_writer_t *w, ts_int_program_t *program )
 {
     // TODO make this work with multiple programs
-    uint64_t start_pkts = w->packets_written;
+    int64_t period = w->pat_period * 27000LL;
     int64_t cur_pcr = get_pcr_int( w, 0 );
-    if( cur_pcr + early - w->last_pat >= w->pat_period * 27000LL || !w->last_pat )
-    {
-        uint64_t pkts = w->packets_written;
-        int queued = program->num_queued_pmt;
 
-        /* Although it is not in line with the mux strategy it is good practice to write PAT and PMT together */
-        w->last_pat = cur_pcr;
-        write_pat( w );          // FIXME handle failure
-        write_pmt( w, program ); // FIXME handle failure
-        w->pat_pmt_pkts = w->packets_written - pkts + program->num_queued_pmt - queued;
-    }
+    if( !w->last_pat || cur_pcr - (int64_t)w->last_pat >= period )
+        write_pat_timed( w, cur_pcr );
 
     cur_pcr = get_pcr_int( w, 0 );
+    if( !w->last_pmt || cur_pcr - (int64_t)w->last_pmt >= period )
+        write_pmt_timed( w, program, cur_pcr );
 
-    if( w->sdt && ( cur_pcr + early - w->last_sdt >= w->sdt_period * 27000LL || !w->last_sdt ) )
+    cur_pcr = get_pcr_int( w, 0 );
+    if( w->sdt && ( !w->last_sdt || cur_pcr - (int64_t)w->last_sdt >= w->sdt_period * 27000LL ) )
+        write_sdt_timed( w, cur_pcr );
+}
+
+/* A padding slot: write the next PSI/SI table due within PSI_EARLY, one table at a time so that
+ * its own packets are all the spare room it needs. Returns 1 if anything was written. */
+static int psi_early( ts_writer_t *w, ts_int_program_t *program, int64_t cur_pcr, int64_t pkt_time )
+{
+    int64_t period = w->pat_period * 27000LL;
+
+    if( w->last_pat && cur_pcr + PSI_EARLY - (int64_t)w->last_pat >= period )
     {
-        uint64_t pkts = w->packets_written;
-
-        w->last_sdt = cur_pcr;
-        write_sdt( w );
-        w->sdt_pkts = w->packets_written - pkts;
+        if( !psi_fits_early( w, cur_pcr, pkt_time, w->pat_pkts ) )
+            return 0;
+        write_pat_timed( w, cur_pcr );
+        return 1;
     }
 
-    return w->packets_written != start_pkts;
+    if( w->last_pmt && cur_pcr + PSI_EARLY - (int64_t)w->last_pmt >= period )
+    {
+        if( !psi_fits_early( w, cur_pcr, pkt_time, 1 ) )
+            return 0;
+        write_pmt_timed( w, program, cur_pcr );
+        return 1;
+    }
+
+    if( w->sdt && w->last_sdt && cur_pcr + PSI_EARLY - (int64_t)w->last_sdt >= w->sdt_period * 27000LL )
+    {
+        if( !psi_fits_early( w, cur_pcr, pkt_time, w->sdt_pkts ) )
+            return 0;
+        write_sdt_timed( w, cur_pcr );
+        return 1;
+    }
+
+    return 0;
 }
 
 /* DVB / Blu-Ray Service Information */
@@ -2080,7 +2128,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
         /* PSI/SI moves the PCR, so decide on the slot the packet will actually go in */
         if( !need_pcr )
         {
-            retransmit_psi_and_si( w, program, 0 );
+            retransmit_psi_and_si( w, program );
             cur_pcr = get_pcr_int( w, 0 );
             need_pcr = check_pcr( w, program );
         }
@@ -2304,7 +2352,7 @@ int ts_write_frames( ts_writer_t *w, ts_frame_t *frames, int num_frames, uint8_t
             }
             /* PSI/SI due soon goes into padding rather than into a later, tighter slot. CBR only:
              * in capped VBR padding is free, so early PSI/SI would only add bitrate. */
-            else if( w->cbr && psi_fits_early( w, cur_pcr, pkt_time ) && retransmit_psi_and_si( w, program, PSI_EARLY ) )
+            else if( w->cbr && psi_early( w, program, cur_pcr, pkt_time ) )
                 ;
             else if( w->cbr )
             {

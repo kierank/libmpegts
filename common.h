@@ -370,9 +370,10 @@ struct ts_writer_t
 
     ts_dtcp_t *dtcp_ctx;
 
-    /* packets the last PAT/PMT and SDT took, reserved in the PES drip */
-    int pat_pmt_pkts;
+    /* packets the last PAT, SDT and PMT took, reserved in the PES drip */
+    int pat_pkts;
     int sdt_pkts;
+    int pmt_pkts;
 };
 
 enum adaptation_field_control_e
